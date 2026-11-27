@@ -1675,6 +1675,11 @@ function initSessionCockpitGrid() {
       else if (action === 'cycle-height') setCockpitWidgetHeight(wId);
       else if (action === 'move-up') moveCockpitWidgetStep(wId, -1);
       else if (action === 'move-down') moveCockpitWidgetStep(wId, 1);
+      else if (action === 'toggle-collapse') {
+        const nextCollapsed = card.getAttribute('data-collapsed') !== 'true';
+        card.setAttribute('data-collapsed', String(nextCollapsed));
+        actBtn.setAttribute('aria-expanded', String(!nextCollapsed));
+      }
     });
 
     grid.addEventListener('keydown', (e) => {

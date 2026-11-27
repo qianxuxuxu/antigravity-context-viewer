@@ -1187,6 +1187,115 @@
   let heatYearOffset = 0;
   let activeCostModel = 'gemini-3.8-flash';
   let activeCostMode = 'ref';
+  const FX_YESTERDAY_STORAGE_KEY = 'ag_fx_usd_cny_yesterday_v1';
+  let cachedYesterdayUsdToCny = null;
+  let fxRefreshStarted = false;
+
+  function getYesterdayLocalYmd() {
+    const d = new Date(Date.now() - 86400000);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function getEffectiveUsdToCnyRate() {
+    if (cachedYesterdayUsdToCny && Number.isFinite(cachedYesterdayUsdToCny.rate) && cachedYesterdayUsdToCny.rate > 0) {
+      return cachedYesterdayUsdToCny.rate;
+    }
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(FX_YESTERDAY_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Number.isFinite(Number(parsed.rate)) && Number(parsed.rate) > 0) {
+            cachedYesterdayUsdToCny = { date: String(parsed.date || ''), rate: Number(parsed.rate) };
+            return cachedYesterdayUsdToCny.rate;
+          }
+        }
+      }
+    } catch { }
+    const fallback = typeof convertToCNY === 'function' ? convertToCNY(1, 'USD', 'US') : 7.18;
+    return Number.isFinite(Number(fallback)) && Number(fallback) > 0 ? Number(fallback) : 7.18;
+  }
+
+  function formatCnyFromUsd(usd, opts = {}) {
+    const num = Number(usd);
+    if (!Number.isFinite(num) || num <= 0) return opts.zeroText || '¥0.00';
+    const cny = num * getEffectiveUsdToCnyRate();
+    const prefix = opts.prefix !== undefined ? opts.prefix : '约 ';
+    if (cny > 0 && cny < 0.01) return `${prefix}<¥0.01`;
+    return `${prefix}¥${cny.toFixed(2)}`;
+  }
+
+  function syncCleanEmojiVisualLabels(rootNode) {
+    try {
+      const scope = rootNode || (typeof shadow !== 'undefined' ? shadow : null);
+      if (!scope || typeof scope.querySelectorAll !== 'function') return;
+      const emojiStripRe = /[\p{Extended_Pictographic}\u2600-\u27BF]\uFE0F?/gu;
+      scope.querySelectorAll('[data-strip-emoji-visual="true"]').forEach(node => {
+        const raw = String(node.textContent || '');
+        const clean = raw.replace(emojiStripRe, '').replace(/\s{2,}/g, ' ').trim();
+        if (clean) node.setAttribute('data-clean-label', clean);
+      });
+    } catch { }
+  }
+
+  async function refreshYesterdayUsdToCnyRate() {
+    if (fxRefreshStarted) return;
+    if (typeof fetch !== 'function' || typeof window === 'undefined' || isHostMockedEnv()) return;
+    const yesterday = getYesterdayLocalYmd();
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(FX_YESTERDAY_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.date === yesterday && Number(parsed.rate) > 0) {
+            cachedYesterdayUsdToCny = { date: yesterday, rate: Number(parsed.rate) };
+            return;
+          }
+        }
+      }
+    } catch { }
+    fxRefreshStarted = true;
+    try {
+      let nextRate = null;
+      try {
+        const res = await fetch(`https://api.frankfurter.app/${yesterday}?from=USD&to=CNY`);
+        if (res && res.ok) {
+          const data = await res.json();
+          const r = Number(data?.rates?.CNY);
+          if (Number.isFinite(r) && r > 0) nextRate = r;
+        }
+      } catch { }
+      if (!nextRate) {
+        const res2 = await fetch('https://open.er-api.com/v6/latest/USD');
+        if (res2 && res2.ok) {
+          const data2 = await res2.json();
+          const r2 = Number(data2?.rates?.CNY);
+          if (Number.isFinite(r2) && r2 > 0) nextRate = r2;
+        }
+      }
+      if (nextRate) {
+        cachedYesterdayUsdToCny = { date: yesterday, rate: Number(nextRate.toFixed(4)) };
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(FX_YESTERDAY_STORAGE_KEY, JSON.stringify(cachedYesterdayUsdToCny));
+          }
+        } catch { }
+        if (typeof renderSessionCost === 'function') renderSessionCost();
+        if (typeof ANTIGRAVITY_TOKEN_DATA !== 'undefined' && ANTIGRAVITY_TOKEN_DATA && typeof applyTokenHistoryPayload === 'function') {
+          try { renderActiveCostEstimateView(); } catch { }
+        }
+      }
+    } catch { }
+  }
+  function isHostMockedEnv() {
+    return typeof process !== 'undefined' && Boolean(process?.env?.NODE_TEST_CONTEXT);
+  }
+  if (typeof setTimeout === 'function' && typeof window !== 'undefined' && !isHostMockedEnv()) {
+    setTimeout(() => { void refreshYesterdayUsdToCnyRate(); }, 400);
+  }
   let autoCheckUpdate = false;
   let allowBetaUpdates = false;
   let cachedLatestRelease = null;
@@ -2735,7 +2844,11 @@
   function ensureComposerStatusBarStyles() {
     try {
       if (typeof document === 'undefined' || !document.head) return;
-      if (document.getElementById('ag-csb-host-styles')) return;
+      const prevStyle = document.getElementById('ag-csb-host-styles');
+      if (prevStyle) {
+        if (String(prevStyle.textContent || '').includes('.ag-tf-lbl')) return;
+        prevStyle.remove?.();
+      }
       const st = document.createElement('style');
       st.id = 'ag-csb-host-styles';
       st.textContent = `
@@ -3059,6 +3172,21 @@
         .ag-cm-turn-footer ~ button,
         .ag-cm-turn-footer ~ [role="button"] {
           flex-shrink: 0 !important;
+        }
+        .ag-cm-turn-footer .ag-tf-lbl {
+          display: inline-block !important;
+          font-size: 0 !important;
+          line-height: 0 !important;
+        }
+        .ag-cm-turn-footer .ag-tf-lbl::after {
+          content: attr(data-zh-label) !important;
+          font-size: 11px !important;
+          line-height: 1.2 !important;
+        }
+        .ag-cm-turn-footer .ag-tf-price::after {
+          content: attr(data-price-label) !important;
+          font-size: 11px !important;
+          line-height: 1.2 !important;
         }
         #composer-status-bar .csb-quota-pill {
           gap: 6px !important;
@@ -3567,6 +3695,11 @@
       const roundCostStr = roundCost < 0.01 ? '<$0.01' : `≈$${roundCost.toFixed(4)}`;
       const estLabel = latestCall.status === 'streaming' ? t('cost.streamingEst') : t('cost.returnedEst');
       roundCostText.textContent = t('cost.latestTurn', { val: roundCostStr, label: estLabel });
+      if (currentPanelLanguage === 'zh-CN') {
+        roundCostText.setAttribute('data-cny-display', `本轮：${formatCnyFromUsd(roundCost)}`);
+      } else {
+        roundCostText.removeAttribute('data-cny-display');
+      }
       roundCostText.title = t('cost.modelTip', {
         model: latestCall.model,
         input: fmt(latestCall.inputTokens),
@@ -3577,18 +3710,224 @@
     } else if (sessionHybridCost.latestEstimateUSD !== null) {
       const roundCost = sessionHybridCost.latestEstimateUSD;
       roundCostText.textContent = t('cost.latestTurn', { val: roundCost < 0.01 ? '<$0.01' : `≈$${roundCost.toFixed(4)}`, label: t('cost.hybridBadge') });
+      if (currentPanelLanguage === 'zh-CN') {
+        roundCostText.setAttribute('data-cny-display', `本轮：${formatCnyFromUsd(roundCost)}`);
+      } else {
+        roundCostText.removeAttribute('data-cny-display');
+      }
       roundCostText.title = t('cost.sessionReferenceTip');
     } else if (latestCall) {
       roundCostText.textContent = t('cost.unpriced');
+      roundCostText.removeAttribute('data-cny-display');
       roundCostText.title = latestCall.model ? t('cost.unpricedTip', { model: latestCall.model }) : t('cost.missingModel');
     } else {
       roundCostText.textContent = t('cost.latestDash');
+      roundCostText.removeAttribute('data-cny-display');
       roundCostText.title = '';
     }
     sessionCostText.textContent = sessTotal > 0 ? t('cost.sessionTotal', { val: sessTotal.toFixed(4) }) : t('session.sessionCost.dash');
+    if (sessTotal > 0 && currentPanelLanguage === 'zh-CN') {
+      sessionCostText.setAttribute('data-cny-display', `当前会话合计：${formatCnyFromUsd(sessTotal)}`);
+    } else {
+      sessionCostText.removeAttribute('data-cny-display');
+    }
     sessionCostText.title = sessionHybridCost.unpricedResidualTokens > 0
       ? `${t('cost.hybridSub', { known: sessionHybridCost.knownCostUSD.toFixed(4), res: sessionHybridCost.unpricedResidualCostUSD.toFixed(4) })} · ${t('cost.sessionReferenceTip')}`
       : '';
+    if (typeof renderRouteAdvisorCard === 'function') renderRouteAdvisorCard();
+  }
+
+  function getTodayLocalYmd() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function resolveLiveModelRates(modelKey, todayYmd, promptTokens = 0) {
+    const core = typeof __AGContextMeterCore !== 'undefined' ? __AGContextMeterCore : null;
+    if (core && typeof core.calculateReferenceModelCost === 'function') {
+      const res = core.calculateReferenceModelCost({
+        inputTokens: Math.max(1000, Number(promptTokens) || 1000),
+        outputTokens: 1000,
+        cacheTokens: 0,
+        totalTokens: Math.max(2000, (Number(promptTokens) || 1000) + 1000)
+      }, modelKey, { pricingDate: todayYmd, mode: 'all' });
+      const tTier = res?.matchedTier;
+      if (tTier && Number.isFinite(Number(tTier.inputPerMillion)) && Number.isFinite(Number(tTier.outputPerMillion))) {
+        return {
+          modelKey: res.modelKey || modelKey,
+          displayName: res.modelDisplayName || modelKey,
+          inputPerMillion: Number(tTier.inputPerMillion),
+          cacheReadPerMillion: Number(tTier.cacheReadPerMillion ?? 0),
+          outputPerMillion: Number(tTier.outputPerMillion),
+          isPromo: Boolean(tTier.effectiveTo && todayYmd <= tTier.effectiveTo),
+          effectiveTo: tTier.effectiveTo || null
+        };
+      }
+    }
+    return null;
+  }
+
+  function renderRouteAdvisorCard() {
+    const badgeEl = el('ctx-ra-badge');
+    const reasonEl = el('ctx-ra-reason');
+    const gridEl = el('ctx-ra-grid');
+    const ruleEl = el('ctx-ra-rule');
+    if (!badgeEl || !gridEl) return;
+
+    const todayYmd = getTodayLocalYmd();
+    const calls = Array.isArray(state.sessionCalls) ? state.sessionCalls : [];
+    const lastCall = calls[calls.length - 1] || null;
+    const rawCtx = Number(state.lastData?.usedTokens || state.sessionStats?.usedTokens || 0);
+    const callCtx = lastCall
+      ? (Number(lastCall.inputTokens || 0) + Number(lastCall.cacheCreationInputTokens || 0) + Number(lastCall.cacheReadTokens ?? lastCall.cacheTokens ?? 0))
+      : 0;
+    const ctxTokens = Math.max(0, rawCtx || callCtx || 0);
+
+    let hitRate = 0;
+    if (lastCall) {
+      const ti = Number(lastCall.inputTokens || 0) + Number(lastCall.cacheCreationInputTokens || 0) + Number(lastCall.cacheReadTokens ?? lastCall.cacheTokens ?? 0);
+      const cr = Number(lastCall.cacheReadTokens ?? lastCall.cacheTokens ?? 0);
+      hitRate = ti > 0 ? Math.max(0, Math.min(0.98, cr / ti)) : 0;
+    } else if (ctxTokens >= 20000) {
+      hitRate = 0.80;
+    }
+
+    const outList = calls.map(c => Number(c?.outputTokens || 0)).filter(v => v > 0);
+    const avgOut = outList.length
+      ? Math.max(800, Math.min(8000, Math.round(outList.reduce((a, b) => a + b, 0) / outList.length)))
+      : 1800;
+
+    const calcDirectUsd = (rates, hit) => (
+      ctxTokens * (1 - hit) * rates.inputPerMillion +
+      ctxTokens * hit * rates.cacheReadPerMillion +
+      avgOut * rates.outputPerMillion
+    ) / 1e6;
+
+    const neonRates = resolveLiveModelRates('gemini-4-neon', todayYmd, ctxTokens) || {
+      displayName: 'Gemini 4 Neon', inputPerMillion: 3.00, cacheReadPerMillion: 0.15, outputPerMillion: 15.00, isPromo: false
+    };
+    const carbonRates = resolveLiveModelRates('gemini-4-carbon', todayYmd, ctxTokens) || {
+      displayName: 'Gemini 4 Carbon', inputPerMillion: 4.00, cacheReadPerMillion: 0.20, outputPerMillion: 20.00, isPromo: false
+    };
+    const hydroRates = resolveLiveModelRates('gemini-4-hydrogen', todayYmd, ctxTokens) || {
+      displayName: 'Gemini 4 Hydrogen', inputPerMillion: 1.50, cacheReadPerMillion: 0.075, outputPerMillion: 7.50, isPromo: false
+    };
+
+    const planHit = Math.min(hitRate, 0.50);
+    const orchExecHit = Math.min(0.35, hitRate * 0.40);
+    const orchPlanUsd = (
+      ctxTokens * 0.35 * (1 - planHit) * neonRates.inputPerMillion +
+      ctxTokens * 0.35 * planHit * neonRates.cacheReadPerMillion +
+      400 * neonRates.outputPerMillion
+    ) / 1e6;
+    const orchExecUsd = (
+      ctxTokens * (1 - orchExecHit) * hydroRates.inputPerMillion +
+      ctxTokens * orchExecHit * hydroRates.cacheReadPerMillion +
+      avgOut * hydroRates.outputPerMillion
+    ) / 1e6;
+    const orchUsd = orchPlanUsd + orchExecUsd;
+
+    const routes = [
+      {
+        id: 'neon',
+        label: '直连 Neon',
+        usd: calcDirectUsd(neonRates, hitRate),
+        meta: `保缓存 ${Math.round(hitRate * 100)}% · 输出 ${formatReqCompactTokens(avgOut)}`,
+        promo: neonRates.isPromo ? '限时优惠' : ''
+      },
+      {
+        id: 'carbon',
+        label: '直连 Carbon',
+        usd: calcDirectUsd(carbonRates, hitRate),
+        meta: `缓存 $${carbonRates.cacheReadPerMillion}/M · 输出 $${carbonRates.outputPerMillion}/M`,
+        promo: carbonRates.isPromo ? '限时优惠' : ''
+      },
+      {
+        id: 'orch',
+        label: 'Orchestrator',
+        usd: orchUsd,
+        meta: `切换命中 ${Math.round(orchExecHit * 100)}% · 调度+Hydrogen`,
+        promo: ''
+      }
+    ];
+
+    // 自动发现当前会话活跃模型或动态目录中的新模型（如后续新出的模型）
+    const activeRawModel = String(lastCall?.model || state.lastData?.model || '').trim();
+    const activeNorm = activeRawModel.toLowerCase();
+    const isAlreadyListed = !activeNorm || /(neon|carbon|hydrogen)/i.test(activeNorm);
+    if (!isAlreadyListed) {
+      const activeRates = resolveLiveModelRates(activeRawModel, todayYmd, ctxTokens);
+      if (activeRates) {
+        routes.push({
+          id: 'active',
+          label: `直连 ${activeRates.displayName || activeRawModel}`,
+          usd: calcDirectUsd(activeRates, hitRate),
+          meta: `自动识别 · 缓存 $${activeRates.cacheReadPerMillion}/M`,
+          promo: activeRates.isPromo ? '限时优惠' : ''
+        });
+      }
+    }
+
+    const fx = getEffectiveUsdToCnyRate();
+    const fmtCny = (usd) => {
+      const cny = usd * fx;
+      if (cny <= 0) return '¥0.00';
+      return cny < 0.01 ? '<¥0.01' : `¥${cny.toFixed(2)}`;
+    };
+
+    const sorted = routes.slice().sort((a, b) => a.usd - b.usd);
+    const winner = sorted[0];
+    const runnerUp = sorted[1] || winner;
+
+    if (typeof document?.createElement === 'function' && typeof gridEl.replaceChildren === 'function') {
+      const cols = routes.map(r => {
+        const col = document.createElement('div');
+        col.className = `ctx-ra-col${r.id === winner.id && (ctxTokens >= 1000 || calls.length > 0) ? ' is-winner' : ''}`;
+        const lbl = document.createElement('div');
+        lbl.className = 'ctx-ra-col-lbl';
+        lbl.textContent = r.label;
+        if (r.promo) {
+          const tag = document.createElement('span');
+          tag.className = 'ctx-ra-promo-tag';
+          tag.textContent = r.promo;
+          lbl.appendChild(tag);
+        }
+        const val = document.createElement('div');
+        val.className = 'ctx-ra-col-val';
+        val.textContent = `${fmtCny(r.usd)}/轮`;
+        const meta = document.createElement('div');
+        meta.className = 'ctx-ra-col-meta';
+        meta.textContent = r.meta;
+        col.appendChild(lbl);
+        col.appendChild(val);
+        col.appendChild(meta);
+        return col;
+      });
+      gridEl.replaceChildren(...cols);
+    }
+
+    if (ctxTokens < 1000 && calls.length === 0) {
+      badgeEl.setAttribute('data-winner', 'orch');
+      badgeEl.textContent = '新会话建议：重代码用 Orchestrator';
+      if (reasonEl) reasonEl.textContent = '当前几乎无历史缓存包袱，多步/大段代码生成选 Orchestrator 更省；单轮短问答直连单模型即可。';
+    } else {
+      const saveCny = Math.max(0.01, (runnerUp.usd - winner.usd) * fx);
+      badgeEl.setAttribute('data-winner', winner.id === 'orch' ? 'orch' : 'neon');
+      badgeEl.textContent = `推荐 ${winner.label} · 省 ¥${saveCny.toFixed(2)}/轮`;
+      if (reasonEl) {
+        if (winner.id === 'orch') {
+          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)}、缓存包袱较轻，Orchestrator 调度 Hydrogen 的低输出价更划算。`;
+        } else {
+          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)} 且缓存命中 ${Math.round(hitRate * 100)}%，${winner.label} 保缓存${winner.promo ? '叠加限时优惠' : ''}比切 Orchestrator 丢缓存更省。`;
+        }
+      }
+    }
+    if (ruleEl) {
+      ruleEl.textContent = `按今日 ${todayYmd} 生效费率（含限时优惠）与昨日汇率 ${fx.toFixed(2)} 计算 · 每日自动同步新模型与优惠价`;
+    }
   }
 
   function applyLayoutMode(nextMode) {
@@ -8313,6 +8652,7 @@
         existing.forEach(n => n.remove?.());
         return;
       }
+      ensureComposerStatusBarStyles();
       const rawToolbars = Array.from(document.querySelectorAll('[data-testid="cascade-system-message-toolbar"], [data-testid="side-question-tab-conversation"] [data-testid="cascade-system-message-toolbar"]'));
       const seenTb = new Set();
       const mainToolbars = [];
@@ -8459,7 +8799,53 @@
           });
         }
         // 脏检查幂等写入：数值不变时不重复改写 textContent 与 aria-label，避免唤醒 MutationObserver
-        if (badge.textContent !== text) badge.textContent = text;
+        const curText = badge.getAttribute('data-ag-text') || '';
+        const nextLang = typeof currentPanelLanguage === 'string' ? currentPanelLanguage : 'zh-CN';
+        const turnCostSummary = (typeof __AGContextMeterCore !== 'undefined' && typeof __AGContextMeterCore.summarizeSessionHybridCost === 'function')
+          ? __AGContextMeterCore.summarizeSessionHybridCost(activeCalls)
+          : null;
+        const turnCostUsd = Number(turnCostSummary?.combinedTotalUSD || activeCalls.reduce((s, c) => s + (Number(c?.costUSD) || 0), 0));
+        const priceDisplayLabel = (hasCalcUsage && turnCostUsd > 0)
+          ? (nextLang === 'en'
+            ? ` · ~$${turnCostUsd < 0.01 ? '<0.01' : turnCostUsd.toFixed(2)}`
+            : ` · ${formatCnyFromUsd(turnCostUsd)}`)
+          : '';
+        if (curText !== text || badge.getAttribute('data-ag-lang') !== nextLang || (badge.getAttribute('data-ag-price') || '') !== priceDisplayLabel) {
+          badge.setAttribute('data-ag-text', text);
+          badge.setAttribute('data-ag-lang', nextLang);
+          badge.setAttribute('data-ag-price', priceDisplayLabel);
+          if (nextLang !== 'en' && typeof document?.createElement === 'function' && typeof document?.createTextNode === 'function' && typeof badge.replaceChildren === 'function') {
+            const frag = [];
+            footerParts.filter(Boolean).forEach((part, idx) => {
+              if (idx > 0) frag.push(document.createTextNode(' · '));
+              if (part.startsWith('In ')) {
+                const sp = document.createElement('span');
+                sp.className = 'ag-tf-lbl';
+                sp.setAttribute('data-zh-label', '输入');
+                sp.textContent = 'In';
+                frag.push(sp, document.createTextNode(part.slice(2)));
+              } else if (part.startsWith('Out ')) {
+                const sp = document.createElement('span');
+                sp.className = 'ag-tf-lbl';
+                sp.setAttribute('data-zh-label', '输出');
+                sp.textContent = 'Out';
+                frag.push(sp, document.createTextNode(part.slice(3)));
+              } else {
+                frag.push(document.createTextNode(part));
+              }
+            });
+            if (priceDisplayLabel) {
+              const pSp = document.createElement('span');
+              pSp.className = 'ag-tf-price';
+              pSp.setAttribute('data-price-label', priceDisplayLabel);
+              frag.push(pSp);
+            }
+            badge.replaceChildren(...frag);
+            if (badge.textContent !== text) badge.textContent = text;
+          } else if (badge.textContent !== text) {
+            badge.textContent = text;
+          }
+        }
         const nextScope = isTurnAggregate ? 'turn' : 'request';
         if (badge.getAttribute('data-scope') !== nextScope) badge.setAttribute('data-scope', nextScope);
         if (badge.getAttribute('data-turn-key') !== turnKey) badge.setAttribute('data-turn-key', turnKey);
@@ -8473,11 +8859,31 @@
         const reqTimeStr = tp?.tooltip || tp?.text || (lastCall.date || '—');
         const safeCallId = desensitizeTurnCallId(lastCall.callId);
         const tipAction = isMultiCall ? t('turnFooter.tipMulti') : t('turnFooter.tipSingle');
+        const modelGroups = new Map();
+        for (const c of activeCalls) {
+          const mk = String(c?.attributedModelLabel || c?.modelLabel || c?.model || '未知模型');
+          if (!modelGroups.has(mk)) modelGroups.set(mk, []);
+          modelGroups.get(mk).push(c);
+        }
+        const perModelLines = [];
+        if (modelGroups.size > 0 && hasCalcUsage) {
+          for (const [mk, mCalls] of modelGroups.entries()) {
+            const mIn = mCalls.reduce((a, c) => a + Math.max(0, Number(c?.inputTokens || 0)) + Math.max(0, Number(c?.cacheCreationInputTokens ?? 0)) + Math.max(0, Number(c?.cacheReadTokens ?? c?.cacheTokens ?? 0)), 0);
+            const mOut = mCalls.reduce((a, c) => a + Math.max(0, Number(c?.outputTokens || 0)), 0);
+            const mCostSum = (typeof __AGContextMeterCore !== 'undefined' && typeof __AGContextMeterCore.summarizeSessionHybridCost === 'function')
+              ? __AGContextMeterCore.summarizeSessionHybridCost(mCalls)
+              : null;
+            const mUsd = Number(mCostSum?.combinedTotalUSD || mCalls.reduce((s, c) => s + (Number(c?.costUSD) || 0), 0));
+            const mPriceStr = mUsd > 0 ? (nextLang === 'en' ? `$${mUsd.toFixed(4)}` : formatCnyFromUsd(mUsd)) : '—';
+            perModelLines.push(`  · ${mk} · ${mCalls.length}次: 输入 ${formatReqCompactTokens(mIn)} / 输出 ${formatReqCompactTokens(mOut)} · ${mPriceStr}`);
+          }
+        }
         const titleLines = [
-          `${scopeLabel}${isTurnAggregate ? ` · ${turnCalls.length} 次请求` : ''} · 模型: ${mName || '未知'}`,
+          `${scopeLabel}${isTurnAggregate ? ` · ${turnCalls.length} 次请求` : ''} · 模型: ${mName || '未知'}${priceDisplayLabel}`,
           `请求 ID: ${safeCallId} · 时间: ${reqTimeStr}`,
           `未缓存输入: ${cs.uncachedInput.toLocaleString()} · 缓存读取: ${cs.cacheRead.toLocaleString()} · 总输入: ${cs.totalInput.toLocaleString()} · 命中 ${hitStr}`,
           `输出: ${cs.output.toLocaleString()}${tpsStr ? ` · 速度: ${tpsStr}` : ''}`,
+          ...(perModelLines.length > 1 || (perModelLines.length === 1 && turnCostUsd > 0) ? ['分模型明细:', ...perModelLines] : []),
           tipAction
         ];
         const nextTitle = titleLines.join('\n');
@@ -8753,6 +9159,23 @@
   el('btn-cost-sync-pricing')?.addEventListener('click', () => {
     void triggerSyncPricingCatalog({ force: true });
   });
+
+  // 每日自动同步一次最新模型价格与限时优惠阶梯
+  function ensureDailyPricingSync() {
+    if (typeof window === 'undefined' || isHostMockedEnv()) return;
+    const todayYmd = getTodayLocalYmd();
+    try {
+      const lastYmd = typeof localStorage !== 'undefined' ? localStorage.getItem('ag_daily_pricing_sync_ymd_v1') : '';
+      if (lastYmd === todayYmd) return;
+      if (typeof localStorage !== 'undefined') localStorage.setItem('ag_daily_pricing_sync_ymd_v1', todayYmd);
+    } catch { }
+    void triggerSyncPricingCatalog({ force: true }).then(() => {
+      try { if (typeof renderRouteAdvisorCard === 'function') renderRouteAdvisorCard(); } catch { }
+    }).catch(() => { });
+  }
+  if (typeof setTimeout === 'function' && typeof window !== 'undefined' && !isHostMockedEnv()) {
+    setTimeout(() => { ensureDailyPricingSync(); }, 1200);
+  }
   el('btn-req-live-refresh')?.addEventListener('click', () => {
     lastRequestsLiveSyncAt = Date.now();
     renderRequestsLiveView({ force: true });
@@ -16015,6 +16438,7 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       }
     } catch { }
     try { if (typeof applyTheme === 'function') applyTheme(); } catch { }
+    try { syncCleanEmojiVisualLabels(); } catch { }
     try { render(); } catch { }
     try { renderSessionCost(); } catch { }
     try { if (typeof renderQuotaBoard === 'function') renderQuotaBoard(); } catch { }
@@ -18318,15 +18742,24 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
           grandVal.textContent = currentPanelLanguage === 'zh-CN'
             ? t('cost.approx', { val: apiCost.toFixed(2) })
             : formatUsdMetricDisplay(apiCost, { detail: currentPanelLanguage === 'zh-TW' });
+          if (currentPanelLanguage === 'zh-CN') {
+            const actualTotalUsd = Number(curHybrid?.hybrid?.combinedTotalUSD || apiCost);
+            grandVal.setAttribute('data-cny-display', formatCnyFromUsd(actualTotalUsd));
+          } else {
+            grandVal.removeAttribute('data-cny-display');
+          }
           grandVal.title = formatUsdMetricTooltip(apiCost);
         } else if (curTotal > 0 && curIn === 0 && curCa === 0 && curOut === 0) {
           grandVal.textContent = t('cost.notReady');
+          grandVal.removeAttribute('data-cny-display');
           grandVal.title = t('cost.notReady');
         } else if (activeTokenAccountFilter !== 'all' && curTotal === 0) {
           grandVal.textContent = t('cost.noRecords');
+          grandVal.removeAttribute('data-cny-display');
           grandVal.title = t('accounts.filterNoData');
         } else {
           grandVal.textContent = '$0.00';
+          grandVal.removeAttribute('data-cny-display');
           grandVal.title = t('cost.noRecords');
         }
       }
@@ -18344,11 +18777,23 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       cInUSD = Number(effectiveRef.inputCostUSD || (curIn * rateIn / 1e6));
       cCaUSD = Number(effectiveRef.cacheCostUSD || (curCa * rateCa / 1e6));
       cOutUSD = Number(effectiveRef.outputCostUSD || (curOut * rateOut / 1e6));
-      if (inVal) inVal.textContent = `$${cInUSD.toFixed(2)}`;
+      if (inVal) {
+        inVal.textContent = `$${cInUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') inVal.setAttribute('data-cny-display', formatCnyFromUsd(cInUSD, { prefix: '' }));
+        else inVal.removeAttribute('data-cny-display');
+      }
       if (inTok) inTok.textContent = `${fmtYi(curIn)} tok`;
-      if (caVal) caVal.textContent = `$${cCaUSD.toFixed(2)}`;
+      if (caVal) {
+        caVal.textContent = `$${cCaUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') caVal.setAttribute('data-cny-display', formatCnyFromUsd(cCaUSD, { prefix: '' }));
+        else caVal.removeAttribute('data-cny-display');
+      }
       if (caTok) caTok.textContent = t('cost.tokCacheDiscount', { tok: fmtYi(curCa) });
-      if (outVal) outVal.textContent = `$${cOutUSD.toFixed(2)}`;
+      if (outVal) {
+        outVal.textContent = `$${cOutUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') outVal.setAttribute('data-cny-display', formatCnyFromUsd(cOutUSD, { prefix: '' }));
+        else outVal.removeAttribute('data-cny-display');
+      }
       if (outTok) outTok.textContent = `${fmtYi(curOut)} tok`;
     } else if (costModelMode === 'hybrid') {
       const h = curHybrid.hybrid || {};
@@ -18513,14 +18958,48 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       }
     }
 
-    // 5. 详细未计价原因说明
+    // 5. 详细模型分项列表（按人民币折算并按金额降序规整排列）
     if (breakdown) {
       const modelKeys = Object.keys(curIdentified.byModel || {});
-      const modelDetails = modelKeys.map(k => `${k}: $${curIdentified.byModel[k].costUSD} (${fmt(curIdentified.byModel[k].tokens)} tok)`).join('; ');
-      breakdown.textContent = t('cost.breakdownPrefix', {
-        details: modelDetails || t('cost.breakdownNone'),
-        note: ''
-      });
+      if (modelKeys.length > 0 && typeof document?.createElement === 'function' && typeof breakdown.replaceChildren === 'function') {
+        const sortedModels = modelKeys
+          .map(k => ({ name: k, costUSD: Number(curIdentified.byModel[k]?.costUSD || 0), tokens: Number(curIdentified.byModel[k]?.tokens || 0) }))
+          .sort((a, b) => b.costUSD - a.costUSD);
+        const table = document.createElement('div');
+        table.className = 'cost-model-table';
+        const hdr = document.createElement('div');
+        hdr.className = 'cost-model-table-hdr';
+        hdr.textContent = currentPanelLanguage === 'zh-CN'
+          ? `已识别真实模型明细（按昨日汇率 1 USD = ${getEffectiveUsdToCnyRate().toFixed(2)} CNY 累加）`
+          : t('cost.breakdownPrefix', { details: '', note: '' }).replace(/[：:]\s*。?$/, '');
+        table.appendChild(hdr);
+        for (const item of sortedModels) {
+          const row = document.createElement('div');
+          row.className = 'cost-model-row';
+          const nameEl = document.createElement('span');
+          nameEl.className = 'cost-model-name';
+          nameEl.textContent = item.name;
+          const tokEl = document.createElement('span');
+          tokEl.className = 'cost-model-tok';
+          tokEl.textContent = `${fmtYi(item.tokens)} tok`;
+          const priceEl = document.createElement('span');
+          priceEl.className = 'cost-model-cny';
+          priceEl.textContent = currentPanelLanguage === 'zh-CN'
+            ? formatCnyFromUsd(item.costUSD, { prefix: '' })
+            : `$${item.costUSD.toFixed(2)}`;
+          row.appendChild(nameEl);
+          row.appendChild(tokEl);
+          row.appendChild(priceEl);
+          table.appendChild(row);
+        }
+        breakdown.replaceChildren(table);
+      } else {
+        const modelDetails = modelKeys.map(k => `${k}: ${currentPanelLanguage === 'zh-CN' ? formatCnyFromUsd(curIdentified.byModel[k].costUSD, { prefix: '' }) : '$' + curIdentified.byModel[k].costUSD} (${fmt(curIdentified.byModel[k].tokens)} tok)`).join('; ');
+        breakdown.textContent = t('cost.breakdownPrefix', {
+          details: modelDetails || t('cost.breakdownNone'),
+          note: ''
+        });
+      }
     }
 
     // 6. 兼容性辅助隐藏层同步
@@ -18700,7 +19179,7 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
     renderActiveHeatView(true);
   });
 
-  el('refresh').addEventListener('click', () => { if (state.route && !state.scanBusy) void scan(state.generation, state.route, true); });
+  el('refresh')?.addEventListener('click', () => { if (state.route && !state.scanBusy) void scan(state.generation, state.route, true); });
   const closeColorPickerIfOutside = (e) => {
     const path = typeof e?.composedPath === 'function' ? e.composedPath() : [];
     const pop = el('color-picker-popover');
@@ -19513,24 +19992,55 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       tTotalCost.textContent = isScopedEmptyAccount
         ? noAcctCostStr
         : `${formatUsdMetricDisplay(totalCostAgg.totalCostUSD)}${t('tokens.dailyAvg', { val: totalCostAgg.dailyAverageUSD.toFixed(2) })}`;
+      if (!isScopedEmptyAccount && currentPanelLanguage === 'zh-CN') {
+        const fx = getEffectiveUsdToCnyRate();
+        tTotalCost.setAttribute('data-cny-display', `${formatCnyFromUsd(totalCostAgg.totalCostUSD)} · 日均 ¥${(totalCostAgg.dailyAverageUSD * fx).toFixed(2)}`);
+      } else {
+        tTotalCost.removeAttribute('data-cny-display');
+      }
       tTotalCost.title = isScopedEmptyAccount ? '' : formatUsdMetricTooltip(totalCostAgg.totalCostUSD);
     }
     if (tTodayCost) {
       tTodayCost.textContent = isScopedEmptyAccount
         ? noAcctCostStr
         : formatUsdMetricDisplay(todayCostInfo.costUSD);
+      if (!isScopedEmptyAccount && currentPanelLanguage === 'zh-CN') {
+        tTodayCost.setAttribute('data-cny-display', formatCnyFromUsd(todayCostInfo.costUSD));
+      } else {
+        tTodayCost.removeAttribute('data-cny-display');
+      }
       tTodayCost.title = isScopedEmptyAccount ? '' : formatUsdMetricTooltip(todayCostInfo.costUSD);
+    }
+    if (tTodaySub) {
+      if (!isScopedEmptyAccount && currentPanelLanguage === 'zh-CN') {
+        const fx = getEffectiveUsdToCnyRate();
+        tTodaySub.setAttribute('data-cny-display', `${formatCnyFromUsd(todayCostInfo?.costUSD || 0)} · 昨日汇率 ${fx.toFixed(2)}`);
+      } else {
+        tTodaySub.removeAttribute('data-cny-display');
+      }
     }
     if (tMonthCost) {
       tMonthCost.textContent = isScopedEmptyAccount
         ? noAcctCostStr
         : `${formatUsdMetricDisplay(monthCostAgg.totalCostUSD)}${t('tokens.dailyAvg', { val: monthCostAgg.dailyAverageUSD.toFixed(2) })}`;
+      if (!isScopedEmptyAccount && currentPanelLanguage === 'zh-CN') {
+        const fx = getEffectiveUsdToCnyRate();
+        tMonthCost.setAttribute('data-cny-display', `${formatCnyFromUsd(monthCostAgg.totalCostUSD)} · 日均 ¥${(monthCostAgg.dailyAverageUSD * fx).toFixed(2)}`);
+      } else {
+        tMonthCost.removeAttribute('data-cny-display');
+      }
       tMonthCost.title = isScopedEmptyAccount ? '' : formatUsdMetricTooltip(monthCostAgg.totalCostUSD);
     }
     if (tYearCost) {
       tYearCost.textContent = isScopedEmptyAccount
         ? noAcctCostStr
         : `${formatUsdMetricDisplay(yearCostAgg.totalCostUSD)}${t('tokens.dailyAvg', { val: yearCostAgg.dailyAverageUSD.toFixed(2) })}`;
+      if (!isScopedEmptyAccount && currentPanelLanguage === 'zh-CN') {
+        const fx = getEffectiveUsdToCnyRate();
+        tYearCost.setAttribute('data-cny-display', `${formatCnyFromUsd(yearCostAgg.totalCostUSD)} · 日均 ¥${(yearCostAgg.dailyAverageUSD * fx).toFixed(2)}`);
+      } else {
+        tYearCost.removeAttribute('data-cny-display');
+      }
       tYearCost.title = isScopedEmptyAccount ? '' : formatUsdMetricTooltip(yearCostAgg.totalCostUSD);
     }
 
@@ -21726,8 +22236,6 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
     const cardBolt = el('speed-summary-bolt');
     if (topBolt) topBolt.style.color = activeColor;
     if (cardBolt) cardBolt.style.color = activeColor;
-    if (topBolt && evalRes.badge?.glyph) topBolt.textContent = evalRes.badge.glyph;
-    if (cardBolt && evalRes.badge?.glyph) cardBolt.textContent = evalRes.badge.glyph;
 
     const isCompact = state.layoutMode === 'compact';
     const shortSampleText = t('session.speed.shortSampleBadge');
@@ -23619,9 +24127,13 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
         ovPctSummaryEl.textContent = usageTier === 'full'
           ? `${usedPctRaw.toFixed(1)}% · ${t(tierKey)}`
           : `${usedPctRaw.toFixed(1)}% · ${t(tierKey, { pct: remPct.toFixed(1) })}`;
+        ovPctSummaryEl.setAttribute('data-clean-label', `${usedPctRaw.toFixed(1)}%`);
+        ovPctSummaryEl.setAttribute('data-strip-emoji-visual', 'true');
       } else {
         ovPctSummaryEl.textContent = '—';
+        ovPctSummaryEl.removeAttribute('data-clean-label');
       }
+      syncCleanEmojiVisualLabels();
     }
 
     if (ratioPill) {
@@ -28328,9 +28840,10 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       setQuotaTextIfChanged(curPoolEl, view.currentModel?.poolTitle ? `${view.currentModel.poolTitle}` : '');
     }
     if (curEstEl) {
-      const curEstText = !view.currentModel?.noPermission && matchedPoolObj?.primaryBucket?.tokenEstimate
+      const rawEstText = !view.currentModel?.noPermission && matchedPoolObj?.primaryBucket?.tokenEstimate
         ? formatBucketTokenEstimateLine(matchedPoolObj.primaryBucket.tokenEstimate)
         : '';
+      const curEstText = rawEstText ? rawEstText.replace(/^~\s*/, '约 ') : '';
       if (curEstText) {
         setQuotaHiddenIfChanged(curEstEl, false);
         setQuotaTextIfChanged(curEstEl, curEstText);
@@ -31753,6 +32266,7 @@ if (typeof dismissNextPromptSuggestion === 'function') dismissNextPromptSuggesti
       if (customState.sessionStats) state.sessionStats = customState.sessionStats;
       renderComposerStatusBar();
       renderTurnFooterStats();
+      if (typeof renderRouteAdvisorCard === 'function') renderRouteAdvisorCard();
     },
     syncPricingCatalog: opts => triggerSyncPricingCatalog(opts),
     ensureComposerStatusBarMountedForTest: () => ensureComposerStatusBarMounted(),

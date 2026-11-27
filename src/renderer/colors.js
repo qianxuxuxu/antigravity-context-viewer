@@ -395,9 +395,9 @@ function getDefaultSlotColor(slotKey) {
     case 'ringUsed': return isLight ? '#18181b' : '#e6e6eb';
     case 'ringTrack': return isLight ? '#b8b8c2' : '#52525b';
     case 'contextText': return isLight ? '#18181b' : '#ececef';
-    case 'speedText': return isLight ? '#0284c7' : '#38bdf8';
-    case 'tokenTotal': return isLight ? '#7c3aed' : '#c084fc';
-    case 'tokenAccent': return isLight ? '#7c3aed' : '#a78bfa';
+    case 'speedText': return isLight ? '#0071E3' : '#60AEFF';
+    case 'tokenTotal': return isLight ? '#0071E3' : '#60AEFF';
+    case 'tokenAccent': return isLight ? '#0071E3' : '#60AEFF';
     case 'heatLow': return presetScale[0];
     case 'heatHigh': return presetScale[4];
     case 'heatLvl0': return baseScale[0];
@@ -701,15 +701,57 @@ function applyTheme() {
   host.style.setProperty('--ag-host-bg', hostBg);
   syncHostAccentCssVar();
   const btns = [el('theme-toggle'), el('theme-toggle-tokens')].filter(Boolean);
+  const renderThemeSvg = (btn, mode) => {
+    btn.setAttribute?.('data-theme-icon', mode);
+    if (typeof document?.createElementNS === 'function' && typeof btn.replaceChildren === 'function') {
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('viewBox', '0 0 16 16');
+      svg.setAttribute('width', '13');
+      svg.setAttribute('height', '13');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '1.5');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.setAttribute('aria-hidden', 'true');
+      if (mode === 'light') {
+        const c = document.createElementNS(ns, 'circle');
+        c.setAttribute('cx', '8');
+        c.setAttribute('cy', '8');
+        c.setAttribute('r', '3');
+        const p = document.createElementNS(ns, 'path');
+        p.setAttribute('d', 'M8 2v1.3M8 12.7V14M2 8h1.3M12.7 8H14M3.8 3.8l.9.9M11.3 11.3l.9.9M12.2 3.8l-.9.9M4.7 11.3l-.9.9');
+        svg.appendChild(c);
+        svg.appendChild(p);
+      } else if (mode === 'dark') {
+        const p = document.createElementNS(ns, 'path');
+        p.setAttribute('d', 'M12.8 9.6A4.8 4.8 0 0 1 6.4 3.2 5 5 0 1 0 12.8 9.6Z');
+        svg.appendChild(p);
+      } else {
+        const c = document.createElementNS(ns, 'circle');
+        c.setAttribute('cx', '8');
+        c.setAttribute('cy', '8');
+        c.setAttribute('r', '5');
+        const p = document.createElementNS(ns, 'path');
+        p.setAttribute('d', 'M8 3v10');
+        svg.appendChild(c);
+        svg.appendChild(p);
+      }
+      btn.replaceChildren(svg);
+    } else {
+      btn.textContent = mode === 'light' ? '浅' : (mode === 'dark' ? '深' : '自');
+    }
+  };
   btns.forEach(btn => {
     if (currentThemeMode === 'auto') {
-      btn.textContent = activeTheme === 'light' ? '🌗' : '🌓';
+      renderThemeSvg(btn, 'auto');
       btn.title = t('theme.autoTitle', { mode: activeTheme === 'light' ? t('theme.light') : t('theme.dark') });
     } else if (currentThemeMode === 'light') {
-      btn.textContent = '☀️';
+      renderThemeSvg(btn, 'light');
       btn.title = t('theme.lightTitle');
     } else {
-      btn.textContent = '🌙';
+      renderThemeSvg(btn, 'dark');
       btn.title = t('theme.darkTitle');
     }
   });

@@ -865,6 +865,16 @@
     sumCostEl.title = formatUsdMetricTooltip(costAgg.totalCostUSD);
     sumDailyAvgEl.textContent = `$${costAgg.dailyAverageUSD.toFixed(2)}`;
     sumActiveAvgEl.textContent = t('heat.activeDays', { avg: costAgg.activeDailyAverageUSD.toFixed(2), days: costAgg.activeDays });
+    if (typeof currentPanelLanguage === 'string' && currentPanelLanguage === 'zh-CN' && typeof formatCnyFromUsd === 'function') {
+      const fx = typeof getEffectiveUsdToCnyRate === 'function' ? getEffectiveUsdToCnyRate() : 7.18;
+      sumCostEl.setAttribute('data-cny-display', formatCnyFromUsd(costAgg.totalCostUSD));
+      sumDailyAvgEl.setAttribute('data-cny-display', `¥${(costAgg.dailyAverageUSD * fx).toFixed(2)}`);
+      sumActiveAvgEl.setAttribute('data-cny-display', `¥${(costAgg.activeDailyAverageUSD * fx).toFixed(2)}（${costAgg.activeDays}天）`);
+    } else {
+      sumCostEl.removeAttribute('data-cny-display');
+      sumDailyAvgEl.removeAttribute('data-cny-display');
+      sumActiveAvgEl.removeAttribute('data-cny-display');
+    }
 
     if ((viewType === 'monthly' || viewType === 'yearly') && subRatioWrapEl && subRatioEl) {
       const plan = resolveEffectivePlanStatus(ANTIGRAVITY_TOKEN_DATA.planStatus, ANTIGRAVITY_TOKEN_DATA.customPlanSettings);

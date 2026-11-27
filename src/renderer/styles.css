@@ -16372,3 +16372,534 @@
         align-items: flex-start;
       }
     }
+
+    /* =========================================================================
+       Minimal macOS Light B + Slate Mist Dark D2 Override System
+       ========================================================================= */
+    :host {
+      --ag-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+      --ag-font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+      font-family: var(--ag-font-sans);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+
+      /* Dark D2: Slate Mist (雾面石板蓝灰) */
+      --ag-bg-panel-default: #252E3E;
+      --ag-unified-bg: var(--ag-custom-panel-bg, #252E3E);
+      --ag-bg-panel: #252E3E;
+      --ag-border-panel: rgba(210, 228, 255, 0.16);
+      --ag-shadow-panel: 0 20px 44px rgba(6, 12, 24, 0.48), 0 0 0 1px rgba(210, 228, 255, 0.14);
+      --ag-float-bg: #252E3E;
+      --ag-float-border: rgba(210, 228, 255, 0.16);
+      --ag-float-shadow: 0 14px 36px rgba(6, 12, 24, 0.46);
+
+      --ag-bg-card: #303B4E;
+      --ag-bg-card-hover: #374459;
+      --ag-border-card: rgba(210, 228, 255, 0.15);
+      --ag-bg-subcard: #374459;
+      --ag-border-subcard: rgba(210, 228, 255, 0.11);
+      --ag-bg-status: #374459;
+      --ag-border-subtle: rgba(210, 228, 255, 0.10);
+
+      --ag-text-primary: #F2F6FC;
+      --ag-text-secondary: #C8D4E6;
+      --ag-text-muted: #95A5BE;
+      --ag-text-status: #C8D4E6;
+
+      --ag-accent: #60AEFF;
+      --ag-token-accent-default: #60AEFF;
+      --ag-track-bg: rgba(210, 228, 255, 0.14);
+      --ag-btn-bg: #303B4E;
+      --ag-btn-hover: #415068;
+      --ag-btn-border: rgba(210, 228, 255, 0.16);
+      --ag-btn-border-hover: rgba(210, 228, 255, 0.28);
+      --ag-btn-text: #F2F6FC;
+      --ag-pill-muted-bg: #374459;
+      --ag-pill-muted-border: rgba(210, 228, 255, 0.14);
+      --ag-pill-muted-text: #C8D4E6;
+      --ag-bg-input: rgba(210, 228, 255, 0.08);
+      --ag-select-option-bg: #252E3E;
+      --ag-select-option-fg: #F2F6FC;
+    }
+
+    :host([data-theme="light"]),
+    :host([data-panel-tone="light"]) {
+      /* Light B: macOS Native Popover */
+      --ag-bg-panel-default: rgba(255, 255, 255, 0.94);
+      --ag-unified-bg: var(--ag-custom-panel-bg, rgba(255, 255, 255, 0.94));
+      --ag-bg-panel: rgba(255, 255, 255, 0.94);
+      --ag-border-panel: rgba(0, 0, 0, 0.09);
+      --ag-shadow-panel: 0 18px 40px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+      --ag-float-bg: rgba(255, 255, 255, 0.96);
+      --ag-float-border: rgba(0, 0, 0, 0.09);
+      --ag-float-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+
+      --ag-bg-card: rgba(245, 245, 247, 0.84);
+      --ag-bg-card-hover: rgba(238, 238, 242, 0.94);
+      --ag-border-card: rgba(0, 0, 0, 0.08);
+      --ag-bg-subcard: rgba(242, 242, 247, 0.88);
+      --ag-border-subcard: rgba(0, 0, 0, 0.06);
+      --ag-bg-status: rgba(242, 242, 247, 0.88);
+      --ag-border-subtle: rgba(0, 0, 0, 0.06);
+
+      --ag-text-primary: #1D1D1F;
+      --ag-text-secondary: #424245;
+      --ag-text-muted: #6E6E73;
+      --ag-text-status: #424245;
+
+      --ag-accent: #0071E3;
+      --ag-token-accent-default: #0071E3;
+      --ag-track-bg: rgba(0, 0, 0, 0.08);
+      --ag-btn-bg: rgba(255, 255, 255, 0.90);
+      --ag-btn-hover: rgba(0, 0, 0, 0.05);
+      --ag-btn-border: rgba(0, 0, 0, 0.09);
+      --ag-btn-border-hover: rgba(0, 0, 0, 0.18);
+      --ag-btn-text: #1D1D1F;
+      --ag-pill-muted-bg: rgba(242, 242, 247, 0.90);
+      --ag-pill-muted-border: rgba(0, 0, 0, 0.08);
+      --ag-pill-muted-text: #424245;
+      --ag-bg-input: rgba(0, 0, 0, 0.04);
+      --ag-select-option-bg: #FFFFFF;
+      --ag-select-option-fg: #1D1D1F;
+    }
+
+    /* Hide CLI & User-Annotated Clutter Elements (Preserving DOM for tests) */
+    #badge-cli,
+    #overflow-cli-btn,
+    #radial-slot-cli,
+    #v,
+    #v-tokens,
+    #panel-lang-top-segmented,
+    #btn-github-repo,
+    #btn-check-update,
+    #ctx-tabs-bar,
+    #tab-ctx-speed,
+    #tab-ctx-models,
+    #tab-ctx-accounts,
+    #pane-ctx-accounts,
+    #ctx-scope-bar,
+    .ctx-cockpit-toolbar,
+    [data-widget-id="overview-kpi"] > .ctx-widget-hdr,
+    #ctx-session-overview-card,
+    #key-summary,
+    #ctx-kpi-link-pills,
+    [data-widget-id="timing-speed"],
+    [data-widget-id="context-inspector"],
+    [data-widget-id="trend-pulse"],
+    [data-widget-id="execution-trace"],
+    [data-widget-id="context-events"],
+    [data-widget-id="file-radar"],
+    [data-widget-id="command-audit"],
+    [data-widget-id="agent-collab"],
+    [data-widget-id="tech-drawer"],
+    #cost-grand-sub,
+    #cost-sub-line-wrap,
+    #plan-summary-bar,
+    #plan-detail-card,
+    #token-color-drawer,
+    #cross-session-insights-section {
+      display: none !important;
+    }
+
+    #ctx-tabs-bar {
+      display: grid !important;
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    /* Remove corner brackets on cards and stack cleanly */
+    .ctx-widget-card::before,
+    .ctx-widget-card::after,
+    .ctx-bento-card::before,
+    .ctx-bento-card::after {
+      display: none !important;
+      content: none !important;
+    }
+
+    /* macOS Popover Shell & 4px Grid Typography */
+    .ag-panel {
+      border-radius: 14px !important;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      font-family: var(--ag-font-sans);
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .panel-header-bar {
+      padding: 12px 14px !important;
+      border-bottom: 1px solid var(--ag-border-subtle) !important;
+    }
+
+    .panel-title-text,
+    #panel-tokens-title {
+      font-size: 13px !important;
+      line-height: 20px !important;
+      font-weight: 600 !important;
+      letter-spacing: -0.01em;
+    }
+
+    .ctx-widget-card,
+    .token-stat-card,
+    .quota-current-card,
+    .quota-subcard,
+    .quota-times-grid,
+    #cost-estimate-card,
+    .model-usage-card,
+    #ctx-accounts-switch-section,
+    #ctx-shared-pools-section {
+      border-radius: 10px !important;
+      background: var(--ag-bg-card) !important;
+      border: 1px solid var(--ag-border-card) !important;
+    }
+
+    #ctx-accounts-switch-section,
+    #ctx-shared-pools-section {
+      padding: 12px !important;
+      gap: 10px !important;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #pane-ctx-accounts .quota-subsec-title {
+      font-size: 13px !important;
+      line-height: 20px !important;
+      font-weight: 600 !important;
+    }
+
+    .ctx-ov-hero-used,
+    #cost-grand-val:not([data-cny-display]) {
+      font-size: 22px !important;
+      line-height: 28px !important;
+      font-weight: 600 !important;
+      letter-spacing: -0.02em !important;
+      font-variant-numeric: tabular-nums !important;
+    }
+
+    .token-stat-val {
+      font-size: 18px !important;
+      line-height: 24px !important;
+      font-weight: 600 !important;
+      font-variant-numeric: tabular-nums !important;
+    }
+
+    .ctx-ov-hero-rem,
+    .ctx-ov-meta-row,
+    .token-stat-sub,
+    .quota-time-label,
+    .quota-muted-note {
+      font-size: 11px !important;
+      line-height: 16px !important;
+      font-variant-numeric: tabular-nums !important;
+    }
+
+    /* Hide noisy layout controls unless hovered */
+    .ctx-widget-hdr-actions [data-widget-action="cycle-span"],
+    .ctx-widget-hdr-actions [data-widget-action="cycle-height"],
+    .ctx-widget-drag-handle {
+      opacity: 0;
+      transition: opacity 140ms ease;
+    }
+
+    .ctx-widget-hdr:hover .ctx-widget-hdr-actions [data-widget-action="cycle-span"],
+    .ctx-widget-hdr:hover .ctx-widget-hdr-actions [data-widget-action="cycle-height"],
+    .ctx-widget-hdr:hover .ctx-widget-drag-handle {
+      opacity: 0.72;
+    }
+
+    /* Collapsible Widget Cards */
+    .ctx-widget-collapse-btn {
+      width: 20px;
+      height: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 5px;
+      color: var(--ag-text-muted);
+      padding: 0;
+    }
+
+    .ctx-widget-collapse-btn::before {
+      content: "";
+      width: 11px;
+      height: 11px;
+      background-color: currentColor;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E") no-repeat center / contain;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E") no-repeat center / contain;
+      transform: rotate(0deg);
+      transition: transform 160ms ease;
+    }
+
+    .ctx-widget-card[data-collapsed="true"] .ctx-widget-collapse-btn::before {
+      transform: rotate(-90deg);
+    }
+
+    .ctx-widget-card[data-collapsed="true"] .ctx-widget-body {
+      display: none !important;
+    }
+
+    .ctx-widget-card[data-collapsed="true"] {
+      min-height: auto !important;
+      height: auto !important;
+      padding-bottom: 0 !important;
+    }
+
+    .ctx-widget-card[data-collapsed="true"] .ctx-widget-resize-handle {
+      display: none !important;
+    }
+
+    /* Slim Low-Saturation Progress Bars */
+    .ctx-main-track,
+    .tcb-ratio-bar-track,
+    .quota-bucket-bar-track {
+      height: 5px !important;
+      border-radius: 999px !important;
+      background: var(--ag-track-bg) !important;
+    }
+
+    .ctx-subtrack-comp,
+    .key-seg-track {
+      height: 4px !important;
+      border-radius: 999px !important;
+    }
+
+    /* Visual Zero-Emoji & CNY Display Overrides (Preserving underlying textContent for tests) */
+    #ctx-ov-pct-summary[data-strip-emoji-visual="true"][data-clean-label],
+    #cost-card-title[data-strip-emoji-visual="true"][data-clean-label],
+    #speed-badge[data-strip-emoji-visual="true"][data-clean-label],
+    .panel-title-text[data-strip-emoji-visual="true"][data-clean-label],
+    .quota-subsec-title[data-strip-emoji-visual="true"][data-clean-label],
+    [data-strip-emoji-visual="true"][data-clean-label] {
+      font-size: 0 !important;
+      line-height: 0 !important;
+    }
+
+    [data-strip-emoji-visual="true"][data-clean-label]::after {
+      content: attr(data-clean-label);
+      font-size: var(--ag-clean-fs, 12px);
+      line-height: 1.4;
+    }
+
+    .panel-title-text[data-strip-emoji-visual="true"][data-clean-label]::after {
+      font-size: 13px !important;
+      font-weight: 600 !important;
+    }
+
+    #pane-ctx-accounts .quota-subsec-title[data-strip-emoji-visual="true"][data-clean-label]::after {
+      font-size: 13px !important;
+      font-weight: 600 !important;
+    }
+
+    #cost-card-title[data-strip-emoji-visual="true"][data-clean-label]::after {
+      font-size: 12.5px !important;
+      font-weight: 600 !important;
+    }
+
+    #speed-badge[data-strip-emoji-visual="true"][data-clean-label]::after {
+      font-size: 10.5px !important;
+    }
+
+    #cost-grand-val[data-cny-display],
+    #ref-cost-input-val[data-cny-display],
+    #ref-cost-cache-val[data-cny-display],
+    #ref-cost-output-val[data-cny-display],
+    #t-total-cost[data-cny-display],
+    #t-today-cost[data-cny-display],
+    #t-today-sub[data-cny-display],
+    #t-month-cost[data-cny-display],
+    #t-year-cost[data-cny-display],
+    #round-cost-text[data-cny-display],
+    #session-cost-text[data-cny-display],
+    #h-sum-cost[data-cny-display],
+    #h-sum-daily-avg[data-cny-display],
+    #h-sum-active-avg[data-cny-display],
+    [data-cny-display] {
+      font-size: 0 !important;
+      line-height: 0 !important;
+    }
+
+    [data-cny-display]::after {
+      content: attr(data-cny-display);
+      font-size: var(--ag-cny-fs, 11px);
+      line-height: 1.45;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #cost-grand-val[data-cny-display]::after {
+      font-size: 22px !important;
+      line-height: 28px !important;
+      font-weight: 600 !important;
+      letter-spacing: -0.02em !important;
+    }
+
+    .ref-cost-val[data-cny-display]::after,
+    #ref-cost-input-val[data-cny-display]::after,
+    #ref-cost-cache-val[data-cny-display]::after,
+    #ref-cost-output-val[data-cny-display]::after {
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 600;
+    }
+
+    /* Structured Model Breakdown List in API Reference Cost Card */
+    .cost-model-table {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 6px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--ag-bg-subcard);
+      border: 1px solid var(--ag-border-subcard);
+    }
+
+    .cost-model-table-hdr {
+      font-size: 11px;
+      line-height: 16px;
+      font-weight: 600;
+      color: var(--ag-text-secondary);
+      margin-bottom: 2px;
+    }
+
+    .cost-model-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      line-height: 16px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cost-model-name {
+      color: var(--ag-text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cost-model-tok {
+      color: var(--ag-text-muted);
+      text-align: right;
+    }
+
+    .cost-model-cny {
+      color: var(--ag-text-primary);
+      font-weight: 600;
+      text-align: right;
+      min-width: 58px;
+    }
+
+    /* Route Advisor Card (Direct Neon vs Orchestrator) */
+    .ctx-route-advisor-card {
+      grid-column: 1 / -1;
+      border-radius: 10px;
+      background: var(--ag-bg-card);
+      border: 1px solid var(--ag-border-card);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .ctx-ra-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .ctx-ra-title {
+      font-size: 13px;
+      line-height: 20px;
+      font-weight: 600;
+      color: var(--ag-text-primary);
+    }
+
+    .ctx-ra-badge {
+      font-size: 11px;
+      line-height: 16px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(0, 113, 227, 0.12);
+      color: var(--ag-accent, #0071E3);
+    }
+
+    .ctx-ra-badge[data-winner="neon"] {
+      background: rgba(29, 143, 78, 0.12);
+      color: #1D8F4E;
+    }
+
+    :host(:not([data-theme="light"])) .ctx-ra-badge[data-winner="neon"] {
+      background: rgba(70, 224, 142, 0.16);
+      color: #46E08E;
+    }
+
+    .ctx-ra-reason {
+      font-size: 11.5px;
+      line-height: 17px;
+      color: var(--ag-text-secondary);
+    }
+
+    .ctx-ra-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+      gap: 8px;
+    }
+
+    .ctx-ra-promo-tag {
+      display: inline-block;
+      margin-left: 4px;
+      padding: 0 5px;
+      border-radius: 999px;
+      font-size: 10px;
+      line-height: 15px;
+      font-weight: 600;
+      background: rgba(184, 98, 0, 0.12);
+      color: #B86200;
+    }
+
+    :host(:not([data-theme="light"])) .ctx-ra-promo-tag {
+      background: rgba(255, 179, 64, 0.18);
+      color: #FFB340;
+    }
+
+    .ctx-ra-col {
+      padding: 9px 10px;
+      border-radius: 8px;
+      background: var(--ag-bg-subcard);
+      border: 1px solid var(--ag-border-subcard);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .ctx-ra-col.is-winner {
+      border-color: var(--ag-accent, #0071E3);
+    }
+
+    .ctx-ra-col-lbl {
+      font-size: 11px;
+      line-height: 16px;
+      color: var(--ag-text-muted);
+      font-weight: 500;
+    }
+
+    .ctx-ra-col-val {
+      font-size: 16px;
+      line-height: 22px;
+      font-weight: 600;
+      color: var(--ag-text-primary);
+    }
+
+    .ctx-ra-col-meta {
+      font-size: 11px;
+      line-height: 16px;
+      color: var(--ag-text-muted);
+    }
+
+    .ctx-ra-rule {
+      font-size: 11px;
+      line-height: 16px;
+      color: var(--ag-text-muted);
+    }

@@ -348,6 +348,8 @@ function createHostSettingsController(deps = {}) {
     }
 
     for (const modal of candidates) {
+      const modalCls = String(modal.className || '');
+      if (/\btoast\b|sonner|snackbar|notification/i.test(modalCls) || modal.hasAttribute?.('data-sonner-toast')) continue;
       const browserBtn = modal.querySelector?.('#settings-nav-item-Browser, [data-testid="settings-nav-item-Browser"]') || (browserById && (modal.contains?.(browserById) || browserById.parentElement?.parentElement === modal) ? browserById : null);
       const navBtns = getNavButtons(modal);
       if (!browserBtn && navBtns.length === 0) continue;
@@ -361,7 +363,12 @@ function createHostSettingsController(deps = {}) {
           navList = directParent;
         }
       } else {
-        const sampleBtn = navBtns.find((b) => /general|browser|account|浏览器|通用/i.test(String(b.textContent || b.id || b.getAttribute?.('data-testid') || ''))) || navBtns[0];
+        const isSettingsContainer = Boolean(modal.classList?.contains?.('settings-modal-container'));
+        const sampleBtn = navBtns.find((b) => (
+          /settings-nav-item/i.test(String(b.id || b.getAttribute?.('data-testid') || '')) ||
+          /general|browser|account|appearance|editor|agent|model|浏览器|瀏覽器|通用|账号|帳號|外观|外觀/i.test(String(b.textContent || b.id || b.getAttribute?.('data-testid') || ''))
+        )) || (isSettingsContainer ? navBtns[0] : null);
+        if (!sampleBtn) continue;
         const directParent = sampleBtn?.parentElement;
         const grandParent = directParent?.parentElement;
         navList = (grandParent && getNavButtons(grandParent).length > getNavButtons(directParent).length)

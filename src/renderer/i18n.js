@@ -607,6 +607,7 @@ const PANEL_I18N = {
   'turnFooter.scopeReq': { 'zh-CN': '本次请求', 'zh-TW': '本次請求', en: 'Req' },
   'turnFooter.scopeTurn': { 'zh-CN': '本轮汇总', 'zh-TW': '本輪彙總', en: 'Turn' },
   'turnFooter.cache': { 'zh-CN': '缓存', 'zh-TW': '快取', en: 'Cache' },
+  'session.widget.collapseTitle': { 'zh-CN': '展开或收起', 'zh-TW': '展開或收起', en: 'Expand or collapse' },
   'turnFooter.in': { 'zh-CN': '入', 'zh-TW': '入', en: 'In' },
   'turnFooter.out': { 'zh-CN': '出', 'zh-TW': '出', en: 'Out' },
   'turnFooter.tipMulti': { 'zh-CN': '点击在本次请求与本轮汇总之间切换 · 双击查看详细看板', 'zh-TW': '點擊在本次請求與本輪彙總之間切換 · 雙擊查看詳細看板', en: 'Click to toggle between request and turn · Double-click to view dashboard' },
