@@ -1184,6 +1184,19 @@
       stroke: var(--ag-pace-4, #ef4444);
     }
 
+    /* 剩余额度百分比阈值优先级：>=50% 绿、<50% 橙、<20% 红 */
+    #badge-quota[data-quota-level="ok"] .quota-ring-fill {
+      stroke: var(--ag-pace-1, #22c55e) !important;
+    }
+
+    #badge-quota[data-quota-level="warn"] .quota-ring-fill {
+      stroke: var(--ag-pace-3, #f59e0b) !important;
+    }
+
+    #badge-quota[data-quota-level="danger"] .quota-ring-fill {
+      stroke: var(--ag-pace-4, #ef4444) !important;
+    }
+
     :host([data-theme="light"]) #badge-quota,
     :host([data-panel-tone="light"]) #badge-quota {
       --ag-pace-1: #16a34a;
@@ -17260,7 +17273,9 @@
 
     /* Route Advisor Card (Direct Neon vs Orchestrator) */
     .ctx-route-advisor-card {
-      grid-column: 1 / -1;
+      margin-top: 8px;
+      width: 100%;
+      box-sizing: border-box;
       border-radius: 10px;
       background: var(--ag-bg-card);
       border: 1px solid var(--ag-border-card);
@@ -17571,19 +17586,7 @@
           data-i18n="radial.item.context">当前会话</span></span>
     </button>
   </div>
-  <div id="radial-slot-quota" class="ctx-radial-slot" data-radial-slot="quota" style="--i:1">
-    <button id="radial-item-quota" class="ctx-radial-item" type="button" role="menuitem" data-radial-target="quota"
-      data-sat-tone="yellow" aria-label="模型额度" data-i18n-aria="radial.item.quota">
-      <svg class="ctx-radial-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 2a10 10 0 1 0 10 10H12V2Z"></path>
-        <path d="M21.18 8.02A10 10 0 0 0 15.98 2.82"></path>
-      </svg>
-      <span class="ctx-radial-label"><span class="ctx-radial-label-dot" aria-hidden="true"></span><span
-          data-i18n="radial.item.quota">模型额度</span></span>
-    </button>
-  </div>
-  <div id="radial-slot-tokens" class="ctx-radial-slot" data-radial-slot="tokens" style="--i:2">
+  <div id="radial-slot-tokens" class="ctx-radial-slot" data-radial-slot="tokens" style="--i:1">
     <button id="radial-item-tokens" class="ctx-radial-item" type="button" role="menuitem" data-radial-target="tokens"
       data-sat-tone="lilac" aria-label="Token 统计" data-i18n-aria="radial.item.tokens">
       <svg class="ctx-radial-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
@@ -17596,29 +17599,6 @@
           data-i18n="radial.item.tokens">Token 统计</span></span>
     </button>
   </div>
-  <div id="radial-slot-speed" class="ctx-radial-slot" data-radial-slot="speed" style="--i:3">
-    <button id="radial-item-speed" class="ctx-radial-item" type="button" role="menuitem" data-radial-target="speed"
-      data-sat-tone="orange" aria-label="速度对比" data-i18n-aria="radial.item.speed">
-      <svg class="ctx-radial-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-      </svg>
-      <span class="ctx-radial-label"><span class="ctx-radial-label-dot" aria-hidden="true"></span><span
-          data-i18n="radial.item.speed">速度对比</span></span>
-    </button>
-  </div>
-  <div id="radial-slot-requests" class="ctx-radial-slot" data-radial-slot="requests" style="--i:4">
-    <button id="radial-item-requests" class="ctx-radial-item" type="button" role="menuitem"
-      data-radial-target="requests" data-sat-tone="pink" aria-label="实时请求" data-i18n-aria="radial.item.requests">
-      <svg class="ctx-radial-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-      </svg>
-      <span class="ctx-radial-label"><span class="ctx-radial-label-dot" aria-hidden="true"></span><span
-          data-i18n="radial.item.requests">实时请求</span></span>
-    </button>
-  </div>
-  
 </div>
 
 <!-- 右侧辅助栏左缘宽窄拖拽条（仅 aux 且未回退时显示） -->
@@ -17731,18 +17711,18 @@
           <div class="ctx-widget-resize-handle ag-widget-resize-handle" aria-hidden="true"></div>
         </section>
 
-        
-        <!-- 模型路由省钱建议卡：Neon / Carbon / Orchestrator / 新模型实时对比 -->
-        <section id="ctx-route-advisor-card" class="ctx-route-advisor-card" aria-label="模型路由省钱建议">
-          <div class="ctx-ra-hdr">
-            <span class="ctx-ra-title">路由省钱建议</span>
-            <span id="ctx-ra-badge" class="ctx-ra-badge">计算中</span>
-          </div>
-          <div id="ctx-ra-reason" class="ctx-ra-reason">根据当前上下文长度、缓存命中率与当日生效费率实时估算下一轮成本。</div>
-          <div id="ctx-ra-grid" class="ctx-ra-grid"></div>
-          <div id="ctx-ra-rule" class="ctx-ra-rule"></div>
-        </section>
       </div>
+
+      <!-- 模型路由省钱建议卡：Neon / Carbon / Orchestrator / 新模型实时对比（独立于 Skyline 绝对定位网格，避免与 KPI 卡片重叠） -->
+      <section id="ctx-route-advisor-card" class="ctx-route-advisor-card" aria-label="模型路由省钱建议">
+        <div class="ctx-ra-hdr">
+          <span class="ctx-ra-title">路由省钱建议</span>
+          <span id="ctx-ra-badge" class="ctx-ra-badge">计算中</span>
+        </div>
+        <div id="ctx-ra-reason" class="ctx-ra-reason">根据当前上下文长度、缓存命中率与当日生效费率实时估算下一轮成本。</div>
+        <div id="ctx-ra-grid" class="ctx-ra-grid"></div>
+        <div id="ctx-ra-rule" class="ctx-ra-rule"></div>
+      </section>
     </div>
 
 <!-- 设置与系统配置（默认挂载于宿主设置独立页，无法识别宿主结构时作为降级工作区展示） -->
@@ -28886,6 +28866,9 @@ try {
         #composer-status-bar .csb-quota-win[data-pace-tier="3"] .csb-quota-ring { stroke: #f59e0b !important; }
         #composer-status-bar .csb-quota-win[data-pace-tier="4"] .csb-quota-ring { stroke: #ef4444 !important; }
         #composer-status-bar .csb-quota-win[data-quota-state="exhausted"] .csb-quota-ring { stroke: #ef4444 !important; }
+        #composer-status-bar .csb-quota-win[data-quota-level="ok"] .csb-quota-ring { stroke: #22c55e !important; }
+        #composer-status-bar .csb-quota-win[data-quota-level="warn"] .csb-quota-ring { stroke: #f59e0b !important; }
+        #composer-status-bar .csb-quota-win[data-quota-level="danger"] .csb-quota-ring { stroke: #ef4444 !important; }
         #composer-status-bar .csb-quota-win[data-quota-state="no_permission"] .csb-quota-ring { stroke: #a855f7 !important; }
         #composer-status-bar .csb-quota-win[data-quota-state="unknown"] .csb-quota-ring { stroke: #94a3b8 !important; opacity: 0.65 !important; }
         #composer-status-bar .csb-quota-dot {
@@ -30537,7 +30520,7 @@ try {
   // =========================================================================
   // 模块 1B: 上下文圆环 · 外向内虚化汇聚径向菜单 (floating / topbar / bottombar / classic)
   // =========================================================================
-  const RADIAL_TARGETS = ['context', 'quota', 'tokens', 'speed', 'requests', 'cli'];
+  const RADIAL_TARGETS = ['context', 'tokens'];
 
   function getViewportSizeSafe() {
     const w = typeof window !== 'undefined' && Number.isFinite(Number(window.innerWidth)) && window.innerWidth > 0
@@ -30644,7 +30627,7 @@ try {
         const p = Math.max(0, Math.min(100, Math.round(Number(frac) * 100)));
         text = `${p}%`;
         pct = p;
-        tone = p <= 15 ? 'danger' : (p <= 35 ? 'warn' : 'quota');
+        tone = p < 20 ? 'danger' : (p < 50 ? 'warn' : 'quota');
       } else {
         const qTxt = String(el('quota-badge-val')?.textContent || '').trim();
         const m = qTxt.match(/(\d+(?:\.\d+)?)%/);
@@ -30652,7 +30635,7 @@ try {
           const p = Math.max(0, Math.min(100, Math.round(Number(m[1]))));
           text = `${p}%`;
           pct = p;
-          tone = p <= 15 ? 'danger' : (p <= 35 ? 'warn' : 'quota');
+          tone = p < 20 ? 'danger' : (p < 50 ? 'warn' : 'quota');
         }
       }
       return { text, pct, tone, subKind: 'quota' };
@@ -31015,6 +30998,10 @@ try {
    */
   function distributeRadialAngles(startDeg, endDeg, count) {
     const res = [];
+    if (count === 2 && Math.abs(endDeg - startDeg) > 90) {
+      const mid = (startDeg + endDeg) / 2;
+      return [mid - 40, mid + 40];
+    }
     const step = count > 1 ? (endDeg - startDeg) / (count - 1) : 0;
     for (let i = 0; i < count; i++) {
       res.push(startDeg + step * i);
@@ -43850,7 +43837,7 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
   });
   el('speed-custom-dates')?.addEventListener('submit', event => {
     event.preventDefault();
-    const range = { start: el('speed-date-start').value.trim(), end: el('speed-date-end').value.trim() };
+    const range = { start: (el('speed-date-start')?.value || '').trim(), end: (el('speed-date-end')?.value || '').trim() };
     const error = el('speed-date-error');
     const valid = Boolean(parseSpeedDateRange?.(range));
     error.hidden = valid;
@@ -63729,7 +63716,8 @@ function initCrossSessionInsightsControls() {
               : d?.compacted ? t('badge.status.compacted')
                 : d?.estimated ? t('badge.status.estimated')
                   : t('badge.status.normal');
-    el('status').textContent = status;
+    const statusEl = el('status');
+    if (statusEl) statusEl.textContent = status;
 
     const corpus = session?.total
       ? t('badge.corpus.range', { range: range(session.total), inc: incomplete ? t('badge.corpus.incPlus') : '' })
@@ -63996,30 +63984,31 @@ function initCrossSessionInsightsControls() {
       }
     }
 
-    el('model').textContent = d?.model?.startsWith('MODEL_PLACEHOLDER') ? t('tech.modelPlaceholder', { id: d.model }) : d?.model || t('tech.modelMissing');
-    el('request-status').textContent = d?.exceeded ? t('tech.req.exceeded') : d?.network ? t('tech.req.network') : d?.error ? t('tech.req.failed') : isCompactingNow ? t('tech.req.compacting') : d?.compacted ? t('tech.req.compacted') : d?.status === 'reported' ? t('tech.req.reported') : d?.status === 'estimated' ? t('tech.req.estimated') : t('tech.req.waiting');
-    el('actual').textContent = d?.actual != null ? token(d.actual) : d?.exceeded ? t('tech.actual.exceeded', { val: fmt(d.serviceLimit || 0) }) : d?.compacted ? t('tech.actual.compacted') : t('tech.actual.unknown');
-    if (d?.exceeded && !d.serviceLimit) el('actual').textContent = t('tech.actual.exceededNoLim');
-    el('estimate').textContent = d?.estimate ? t('tech.est.val', { val: fmt(d.estimate), note: d.exceeded ? t('tech.est.under') : (d.compacted ? t('tech.est.compacted') : t('tech.est.ref')) }) : t('tech.est.none');
-    el('budget').textContent = token(d?.budget);
-    el('service-limit').textContent = d?.serviceLimit ? t('tech.svcLim.val', { val: fmt(d.serviceLimit) }) : t('tech.svcLim.none');
-    el('percent').textContent = d?.percent != null && !danger && !stale
+    const setElText = (id, val) => { const n = el(id); if (n) n.textContent = val; };
+    setElText('model', d?.model?.startsWith('MODEL_PLACEHOLDER') ? t('tech.modelPlaceholder', { id: d.model }) : d?.model || t('tech.modelMissing'));
+    setElText('request-status', d?.exceeded ? t('tech.req.exceeded') : d?.network ? t('tech.req.network') : d?.error ? t('tech.req.failed') : isCompactingNow ? t('tech.req.compacting') : d?.compacted ? t('tech.req.compacted') : d?.status === 'reported' ? t('tech.req.reported') : d?.status === 'estimated' ? t('tech.req.estimated') : t('tech.req.waiting'));
+    setElText('actual', d?.actual != null ? token(d.actual) : d?.exceeded ? t('tech.actual.exceeded', { val: fmt(d.serviceLimit || 0) }) : d?.compacted ? t('tech.actual.compacted') : t('tech.actual.unknown'));
+    if (d?.exceeded && !d.serviceLimit) setElText('actual', t('tech.actual.exceededNoLim'));
+    setElText('estimate', d?.estimate ? t('tech.est.val', { val: fmt(d.estimate), note: d.exceeded ? t('tech.est.under') : (d.compacted ? t('tech.est.compacted') : t('tech.est.ref')) }) : t('tech.est.none'));
+    setElText('budget', token(d?.budget));
+    setElText('service-limit', d?.serviceLimit ? t('tech.svcLim.val', { val: fmt(d.serviceLimit) }) : t('tech.svcLim.none'));
+    setElText('percent', d?.percent != null && !danger && !stale
       ? (d.compacted ? t('tech.pct.compactedVal', { pct: d.percent.toFixed(1) }) : t('tech.pct.val', { pct: d.percent.toFixed(1) }))
-      : t('tech.pct.none');
-    el('session-total').textContent = session?.total ? range(session.total) + (incomplete ? t('tech.plusUnknown') : '') : state.scanError ? t('tech.scanIncomplete') : t('tech.scanning');
-    el('characters').textContent = session?.total ? fmt(session.total.chars) : '—';
+      : t('tech.pct.none'));
+    setElText('session-total', session?.total ? range(session.total) + (incomplete ? t('tech.plusUnknown') : '') : state.scanError ? t('tech.scanIncomplete') : t('tech.scanning'));
+    setElText('characters', session?.total ? fmt(session.total.chars) : '—');
     for (const name of ['user', 'assistant', 'thinking', 'tools', 'summaries']) {
       if (name === 'summaries' && session?.groups?.summaries && Number(session.checkpointCount) > 0 && Number.isInteger(session.lastCheckpointIndex) && session.lastCheckpointIndex >= 0) {
-        el(name).textContent = t('tech.summaries.withCheckpoints', {
+        setElText(name, t('tech.summaries.withCheckpoints', {
           range: range(session.groups.summaries),
           count: session.checkpointCount,
           step: session.lastCheckpointIndex
-        });
+        }));
       } else {
-        el(name).textContent = session?.groups ? range(session.groups[name]) : '—';
+        setElText(name, session?.groups ? range(session.groups[name]) : '—');
       }
     }
-    el('system').textContent = session?.groups ? range({ low: (session.groups.system?.low || 0) + (session.groups.definitions?.low || 0), high: (session.groups.system?.high || 0) + (session.groups.definitions?.high || 0) }) : '—';
+    setElText('system', session?.groups ? range({ low: (session.groups.system?.low || 0) + (session.groups.definitions?.low || 0), high: (session.groups.system?.high || 0) + (session.groups.definitions?.high || 0) }) : '—');
     const subGrp = session?.compositionSubgroups;
     if (el('injections')) {
       el('injections').textContent = (subGrp && Number(subGrp.injectionCount) > 0)
@@ -64046,9 +64035,9 @@ function initCrossSessionInsightsControls() {
         el('composition-gap').textContent = '—';
       }
     }
-    el('attachment-total').textContent = session?.attachmentTotal ? range(session.attachmentTotal) + (incomplete ? t('tech.plusUnknownShort') : '') : '—';
-    el('steps').textContent = session?.steps != null ? t('tech.stepsVal', { steps: fmt(session.steps), user: session.userMessages, assistant: session.assistantMessages }) : t('tech.stepsNone');
-    el('coverage').textContent = Array.isArray(session?.attachments)
+    setElText('attachment-total', session?.attachmentTotal ? range(session.attachmentTotal) + (incomplete ? t('tech.plusUnknownShort') : '') : '—');
+    setElText('steps', session?.steps != null ? t('tech.stepsVal', { steps: fmt(session.steps), user: session.userMessages, assistant: session.assistantMessages }) : t('tech.stepsNone'));
+    setElText('coverage', Array.isArray(session?.attachments)
       ? t('tech.coverageVal', {
         total: session.attachments.length,
         user: session.attachments.filter(f => f.source === 'user').length,
@@ -64058,12 +64047,13 @@ function initCrossSessionInsightsControls() {
         rescan: state.scanBusy ? t('tech.coverageRescan') : '',
         err: state.scanError ? t('tech.coverageErr', { err: translateBackendText(state.scanError) }) : ''
       })
-      : (state.scanError ? translateBackendText(state.scanError) : t('tech.coverageScanning'));
-    el('updated').textContent = t('tech.updatedVal', {
+      : (state.scanError ? translateBackendText(state.scanError) : t('tech.coverageScanning')));
+    setElText('updated', t('tech.updatedVal', {
       req: state.requestAt ? new Date(state.requestAt).toLocaleTimeString() : t('tech.unread'),
       scan: state.scan ? new Date(state.scan.scannedAt).toLocaleTimeString() : t('tech.unfinished')
-    });
-    el('refresh').disabled = state.scanBusy;
+    }));
+    const refreshBtn = el('refresh');
+    if (refreshBtn) refreshBtn.disabled = state.scanBusy;
     scheduleLatestCallRefresh({ allowTimelineRefresh: false });
     if (typeof syncContextPanelContainerWidthTier === 'function') syncContextPanelContainerWidthTier();
     if (typeof renderContextTrendCard === 'function') renderContextTrendCard();
@@ -66616,6 +66606,15 @@ function initCrossSessionInsightsControls() {
     const CSB_RING_C = 2 * Math.PI * 5.5;
     const paceSuppressed = Boolean(pool.noPermission || view.syncState === 'stale' || view.syncState === 'error' || view.activeStatus === 'stale' || view.activeStatus === 'error');
 
+    function resolveQuotaPctLevel(fraction, status) {
+      if (status === 'exhausted') return 'danger';
+      if (fraction == null || !Number.isFinite(Number(fraction))) return '';
+      const f = Number(fraction);
+      if (f < 0.2) return 'danger';
+      if (f < 0.5) return 'warn';
+      return 'ok';
+    }
+
     const applyWin = (winId, ringId, dotId, textId, prefix, bucket, statusOverride, isSecondary) => {
       const winEl = el(winId);
       const ringEl = el(ringId);
@@ -66637,6 +66636,14 @@ function initCrossSessionInsightsControls() {
       const pace = !paceSuppressed && bucket?.pace && bucket.pace.available ? bucket.pace : null;
 
       setQuotaAttrIfChanged(winEl, 'data-quota-state', bStatus);
+      const bLevel = (bStatus === 'available' || bStatus === 'low' || bStatus === 'exhausted')
+        ? resolveQuotaPctLevel(validFrac ? frac : null, bStatus)
+        : '';
+      if (bLevel) {
+        setQuotaAttrIfChanged(winEl, 'data-quota-level', bLevel);
+      } else {
+        removeQuotaAttrIfPresent(winEl, 'data-quota-level');
+      }
       if (pace && (bStatus === 'available' || bStatus === 'low' || bStatus === 'exhausted')) {
         setQuotaAttrIfChanged(winEl, 'data-pace-tier', String(pace.tier));
       } else {
@@ -66846,6 +66853,18 @@ function initCrossSessionInsightsControls() {
 
     if (bQuota) {
       setQuotaAttrIfChanged(bQuota, 'data-quota-state', view.activeStatus || 'unknown');
+      const topQuotaLevel = (view.activeStatus === 'available' || view.activeStatus === 'low' || view.activeStatus === 'exhausted')
+        ? (view.activeStatus === 'exhausted'
+          ? 'danger'
+          : (view.badge?.fraction != null && Number.isFinite(Number(view.badge.fraction))
+            ? (Number(view.badge.fraction) < 0.2 ? 'danger' : (Number(view.badge.fraction) < 0.5 ? 'warn' : 'ok'))
+            : ''))
+        : '';
+      if (topQuotaLevel) {
+        setQuotaAttrIfChanged(bQuota, 'data-quota-level', topQuotaLevel);
+      } else {
+        removeQuotaAttrIfPresent(bQuota, 'data-quota-level');
+      }
       if (topPace) {
         setQuotaAttrIfChanged(bQuota, 'data-quota-pace-tier', String(topPace.tier));
       } else {
@@ -70130,7 +70149,7 @@ if (typeof dismissNextPromptSuggestion === 'function') dismissNextPromptSuggesti
   }
 
   globalThis.__AGContextMeter = {
-    buildId: 'b2cb93b192187c3f',
+    buildId: 'bf83943413201f3a',
     version: METER_RENDERER_VERSION,
     ensureAlive: () => {
       if (state.disposed) return false;

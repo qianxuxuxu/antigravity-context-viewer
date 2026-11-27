@@ -3223,6 +3223,9 @@
         #composer-status-bar .csb-quota-win[data-pace-tier="3"] .csb-quota-ring { stroke: #f59e0b !important; }
         #composer-status-bar .csb-quota-win[data-pace-tier="4"] .csb-quota-ring { stroke: #ef4444 !important; }
         #composer-status-bar .csb-quota-win[data-quota-state="exhausted"] .csb-quota-ring { stroke: #ef4444 !important; }
+        #composer-status-bar .csb-quota-win[data-quota-level="ok"] .csb-quota-ring { stroke: #22c55e !important; }
+        #composer-status-bar .csb-quota-win[data-quota-level="warn"] .csb-quota-ring { stroke: #f59e0b !important; }
+        #composer-status-bar .csb-quota-win[data-quota-level="danger"] .csb-quota-ring { stroke: #ef4444 !important; }
         #composer-status-bar .csb-quota-win[data-quota-state="no_permission"] .csb-quota-ring { stroke: #a855f7 !important; }
         #composer-status-bar .csb-quota-win[data-quota-state="unknown"] .csb-quota-ring { stroke: #94a3b8 !important; opacity: 0.65 !important; }
         #composer-status-bar .csb-quota-dot {
@@ -4874,7 +4877,7 @@
   // =========================================================================
   // 模块 1B: 上下文圆环 · 外向内虚化汇聚径向菜单 (floating / topbar / bottombar / classic)
   // =========================================================================
-  const RADIAL_TARGETS = ['context', 'quota', 'tokens', 'speed', 'requests', 'cli'];
+  const RADIAL_TARGETS = ['context', 'tokens'];
 
   function getViewportSizeSafe() {
     const w = typeof window !== 'undefined' && Number.isFinite(Number(window.innerWidth)) && window.innerWidth > 0
@@ -4981,7 +4984,7 @@
         const p = Math.max(0, Math.min(100, Math.round(Number(frac) * 100)));
         text = `${p}%`;
         pct = p;
-        tone = p <= 15 ? 'danger' : (p <= 35 ? 'warn' : 'quota');
+        tone = p < 20 ? 'danger' : (p < 50 ? 'warn' : 'quota');
       } else {
         const qTxt = String(el('quota-badge-val')?.textContent || '').trim();
         const m = qTxt.match(/(\d+(?:\.\d+)?)%/);
@@ -4989,7 +4992,7 @@
           const p = Math.max(0, Math.min(100, Math.round(Number(m[1]))));
           text = `${p}%`;
           pct = p;
-          tone = p <= 15 ? 'danger' : (p <= 35 ? 'warn' : 'quota');
+          tone = p < 20 ? 'danger' : (p < 50 ? 'warn' : 'quota');
         }
       }
       return { text, pct, tone, subKind: 'quota' };
@@ -5352,6 +5355,10 @@
    */
   function distributeRadialAngles(startDeg, endDeg, count) {
     const res = [];
+    if (count === 2 && Math.abs(endDeg - startDeg) > 90) {
+      const mid = (startDeg + endDeg) / 2;
+      return [mid - 40, mid + 40];
+    }
     const step = count > 1 ? (endDeg - startDeg) / (count - 1) : 0;
     for (let i = 0; i < count; i++) {
       res.push(startDeg + step * i);
@@ -16196,7 +16203,7 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
   });
   el('speed-custom-dates')?.addEventListener('submit', event => {
     event.preventDefault();
-    const range = { start: el('speed-date-start').value.trim(), end: el('speed-date-end').value.trim() };
+    const range = { start: (el('speed-date-start')?.value || '').trim(), end: (el('speed-date-end')?.value || '').trim() };
     const error = el('speed-date-error');
     const valid = Boolean(parseSpeedDateRange?.(range));
     error.hidden = valid;
@@ -25384,7 +25391,8 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
               : d?.compacted ? t('badge.status.compacted')
                 : d?.estimated ? t('badge.status.estimated')
                   : t('badge.status.normal');
-    el('status').textContent = status;
+    const statusEl = el('status');
+    if (statusEl) statusEl.textContent = status;
 
     const corpus = session?.total
       ? t('badge.corpus.range', { range: range(session.total), inc: incomplete ? t('badge.corpus.incPlus') : '' })
@@ -25651,30 +25659,31 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       }
     }
 
-    el('model').textContent = d?.model?.startsWith('MODEL_PLACEHOLDER') ? t('tech.modelPlaceholder', { id: d.model }) : d?.model || t('tech.modelMissing');
-    el('request-status').textContent = d?.exceeded ? t('tech.req.exceeded') : d?.network ? t('tech.req.network') : d?.error ? t('tech.req.failed') : isCompactingNow ? t('tech.req.compacting') : d?.compacted ? t('tech.req.compacted') : d?.status === 'reported' ? t('tech.req.reported') : d?.status === 'estimated' ? t('tech.req.estimated') : t('tech.req.waiting');
-    el('actual').textContent = d?.actual != null ? token(d.actual) : d?.exceeded ? t('tech.actual.exceeded', { val: fmt(d.serviceLimit || 0) }) : d?.compacted ? t('tech.actual.compacted') : t('tech.actual.unknown');
-    if (d?.exceeded && !d.serviceLimit) el('actual').textContent = t('tech.actual.exceededNoLim');
-    el('estimate').textContent = d?.estimate ? t('tech.est.val', { val: fmt(d.estimate), note: d.exceeded ? t('tech.est.under') : (d.compacted ? t('tech.est.compacted') : t('tech.est.ref')) }) : t('tech.est.none');
-    el('budget').textContent = token(d?.budget);
-    el('service-limit').textContent = d?.serviceLimit ? t('tech.svcLim.val', { val: fmt(d.serviceLimit) }) : t('tech.svcLim.none');
-    el('percent').textContent = d?.percent != null && !danger && !stale
+    const setElText = (id, val) => { const n = el(id); if (n) n.textContent = val; };
+    setElText('model', d?.model?.startsWith('MODEL_PLACEHOLDER') ? t('tech.modelPlaceholder', { id: d.model }) : d?.model || t('tech.modelMissing'));
+    setElText('request-status', d?.exceeded ? t('tech.req.exceeded') : d?.network ? t('tech.req.network') : d?.error ? t('tech.req.failed') : isCompactingNow ? t('tech.req.compacting') : d?.compacted ? t('tech.req.compacted') : d?.status === 'reported' ? t('tech.req.reported') : d?.status === 'estimated' ? t('tech.req.estimated') : t('tech.req.waiting'));
+    setElText('actual', d?.actual != null ? token(d.actual) : d?.exceeded ? t('tech.actual.exceeded', { val: fmt(d.serviceLimit || 0) }) : d?.compacted ? t('tech.actual.compacted') : t('tech.actual.unknown'));
+    if (d?.exceeded && !d.serviceLimit) setElText('actual', t('tech.actual.exceededNoLim'));
+    setElText('estimate', d?.estimate ? t('tech.est.val', { val: fmt(d.estimate), note: d.exceeded ? t('tech.est.under') : (d.compacted ? t('tech.est.compacted') : t('tech.est.ref')) }) : t('tech.est.none'));
+    setElText('budget', token(d?.budget));
+    setElText('service-limit', d?.serviceLimit ? t('tech.svcLim.val', { val: fmt(d.serviceLimit) }) : t('tech.svcLim.none'));
+    setElText('percent', d?.percent != null && !danger && !stale
       ? (d.compacted ? t('tech.pct.compactedVal', { pct: d.percent.toFixed(1) }) : t('tech.pct.val', { pct: d.percent.toFixed(1) }))
-      : t('tech.pct.none');
-    el('session-total').textContent = session?.total ? range(session.total) + (incomplete ? t('tech.plusUnknown') : '') : state.scanError ? t('tech.scanIncomplete') : t('tech.scanning');
-    el('characters').textContent = session?.total ? fmt(session.total.chars) : '—';
+      : t('tech.pct.none'));
+    setElText('session-total', session?.total ? range(session.total) + (incomplete ? t('tech.plusUnknown') : '') : state.scanError ? t('tech.scanIncomplete') : t('tech.scanning'));
+    setElText('characters', session?.total ? fmt(session.total.chars) : '—');
     for (const name of ['user', 'assistant', 'thinking', 'tools', 'summaries']) {
       if (name === 'summaries' && session?.groups?.summaries && Number(session.checkpointCount) > 0 && Number.isInteger(session.lastCheckpointIndex) && session.lastCheckpointIndex >= 0) {
-        el(name).textContent = t('tech.summaries.withCheckpoints', {
+        setElText(name, t('tech.summaries.withCheckpoints', {
           range: range(session.groups.summaries),
           count: session.checkpointCount,
           step: session.lastCheckpointIndex
-        });
+        }));
       } else {
-        el(name).textContent = session?.groups ? range(session.groups[name]) : '—';
+        setElText(name, session?.groups ? range(session.groups[name]) : '—');
       }
     }
-    el('system').textContent = session?.groups ? range({ low: (session.groups.system?.low || 0) + (session.groups.definitions?.low || 0), high: (session.groups.system?.high || 0) + (session.groups.definitions?.high || 0) }) : '—';
+    setElText('system', session?.groups ? range({ low: (session.groups.system?.low || 0) + (session.groups.definitions?.low || 0), high: (session.groups.system?.high || 0) + (session.groups.definitions?.high || 0) }) : '—');
     const subGrp = session?.compositionSubgroups;
     if (el('injections')) {
       el('injections').textContent = (subGrp && Number(subGrp.injectionCount) > 0)
@@ -25701,9 +25710,9 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
         el('composition-gap').textContent = '—';
       }
     }
-    el('attachment-total').textContent = session?.attachmentTotal ? range(session.attachmentTotal) + (incomplete ? t('tech.plusUnknownShort') : '') : '—';
-    el('steps').textContent = session?.steps != null ? t('tech.stepsVal', { steps: fmt(session.steps), user: session.userMessages, assistant: session.assistantMessages }) : t('tech.stepsNone');
-    el('coverage').textContent = Array.isArray(session?.attachments)
+    setElText('attachment-total', session?.attachmentTotal ? range(session.attachmentTotal) + (incomplete ? t('tech.plusUnknownShort') : '') : '—');
+    setElText('steps', session?.steps != null ? t('tech.stepsVal', { steps: fmt(session.steps), user: session.userMessages, assistant: session.assistantMessages }) : t('tech.stepsNone'));
+    setElText('coverage', Array.isArray(session?.attachments)
       ? t('tech.coverageVal', {
         total: session.attachments.length,
         user: session.attachments.filter(f => f.source === 'user').length,
@@ -25713,12 +25722,13 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
         rescan: state.scanBusy ? t('tech.coverageRescan') : '',
         err: state.scanError ? t('tech.coverageErr', { err: translateBackendText(state.scanError) }) : ''
       })
-      : (state.scanError ? translateBackendText(state.scanError) : t('tech.coverageScanning'));
-    el('updated').textContent = t('tech.updatedVal', {
+      : (state.scanError ? translateBackendText(state.scanError) : t('tech.coverageScanning')));
+    setElText('updated', t('tech.updatedVal', {
       req: state.requestAt ? new Date(state.requestAt).toLocaleTimeString() : t('tech.unread'),
       scan: state.scan ? new Date(state.scan.scannedAt).toLocaleTimeString() : t('tech.unfinished')
-    });
-    el('refresh').disabled = state.scanBusy;
+    }));
+    const refreshBtn = el('refresh');
+    if (refreshBtn) refreshBtn.disabled = state.scanBusy;
     scheduleLatestCallRefresh({ allowTimelineRefresh: false });
     if (typeof syncContextPanelContainerWidthTier === 'function') syncContextPanelContainerWidthTier();
     if (typeof renderContextTrendCard === 'function') renderContextTrendCard();
@@ -28271,6 +28281,15 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
     const CSB_RING_C = 2 * Math.PI * 5.5;
     const paceSuppressed = Boolean(pool.noPermission || view.syncState === 'stale' || view.syncState === 'error' || view.activeStatus === 'stale' || view.activeStatus === 'error');
 
+    function resolveQuotaPctLevel(fraction, status) {
+      if (status === 'exhausted') return 'danger';
+      if (fraction == null || !Number.isFinite(Number(fraction))) return '';
+      const f = Number(fraction);
+      if (f < 0.2) return 'danger';
+      if (f < 0.5) return 'warn';
+      return 'ok';
+    }
+
     const applyWin = (winId, ringId, dotId, textId, prefix, bucket, statusOverride, isSecondary) => {
       const winEl = el(winId);
       const ringEl = el(ringId);
@@ -28292,6 +28311,14 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       const pace = !paceSuppressed && bucket?.pace && bucket.pace.available ? bucket.pace : null;
 
       setQuotaAttrIfChanged(winEl, 'data-quota-state', bStatus);
+      const bLevel = (bStatus === 'available' || bStatus === 'low' || bStatus === 'exhausted')
+        ? resolveQuotaPctLevel(validFrac ? frac : null, bStatus)
+        : '';
+      if (bLevel) {
+        setQuotaAttrIfChanged(winEl, 'data-quota-level', bLevel);
+      } else {
+        removeQuotaAttrIfPresent(winEl, 'data-quota-level');
+      }
       if (pace && (bStatus === 'available' || bStatus === 'low' || bStatus === 'exhausted')) {
         setQuotaAttrIfChanged(winEl, 'data-pace-tier', String(pace.tier));
       } else {
@@ -28501,6 +28528,18 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
 
     if (bQuota) {
       setQuotaAttrIfChanged(bQuota, 'data-quota-state', view.activeStatus || 'unknown');
+      const topQuotaLevel = (view.activeStatus === 'available' || view.activeStatus === 'low' || view.activeStatus === 'exhausted')
+        ? (view.activeStatus === 'exhausted'
+          ? 'danger'
+          : (view.badge?.fraction != null && Number.isFinite(Number(view.badge.fraction))
+            ? (Number(view.badge.fraction) < 0.2 ? 'danger' : (Number(view.badge.fraction) < 0.5 ? 'warn' : 'ok'))
+            : ''))
+        : '';
+      if (topQuotaLevel) {
+        setQuotaAttrIfChanged(bQuota, 'data-quota-level', topQuotaLevel);
+      } else {
+        removeQuotaAttrIfPresent(bQuota, 'data-quota-level');
+      }
       if (topPace) {
         setQuotaAttrIfChanged(bQuota, 'data-quota-pace-tier', String(topPace.tier));
       } else {

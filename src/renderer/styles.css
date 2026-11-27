@@ -714,6 +714,19 @@
       stroke: var(--ag-pace-4, #ef4444);
     }
 
+    /* 剩余额度百分比阈值优先级：>=50% 绿、<50% 橙、<20% 红 */
+    #badge-quota[data-quota-level="ok"] .quota-ring-fill {
+      stroke: var(--ag-pace-1, #22c55e) !important;
+    }
+
+    #badge-quota[data-quota-level="warn"] .quota-ring-fill {
+      stroke: var(--ag-pace-3, #f59e0b) !important;
+    }
+
+    #badge-quota[data-quota-level="danger"] .quota-ring-fill {
+      stroke: var(--ag-pace-4, #ef4444) !important;
+    }
+
     :host([data-theme="light"]) #badge-quota,
     :host([data-panel-tone="light"]) #badge-quota {
       --ag-pace-1: #16a34a;
@@ -16790,7 +16803,9 @@
 
     /* Route Advisor Card (Direct Neon vs Orchestrator) */
     .ctx-route-advisor-card {
-      grid-column: 1 / -1;
+      margin-top: 8px;
+      width: 100%;
+      box-sizing: border-box;
       border-radius: 10px;
       background: var(--ag-bg-card);
       border: 1px solid var(--ag-border-card);
