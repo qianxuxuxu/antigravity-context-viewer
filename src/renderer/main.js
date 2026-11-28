@@ -3902,38 +3902,82 @@
     const activeRawModel = String(lastCall?.model || state.lastData?.model || '').trim();
     const activeNorm = activeRawModel.toLowerCase();
     const isUsingOrch = /orchestrator|worker/.test(activeNorm);
-    const isUsingHydro = !isUsingOrch && /hydrogen/.test(activeNorm);
-    const isUsingNeon = !isUsingOrch && /neon/.test(activeNorm);
-    const isUsingCarbon = !isUsingOrch && /carbon/.test(activeNorm);
+    // 按当前对话实测逐轮数据校准（结合系统前缀保底法则 ~27.5K）
+    const authTurns = typeof buildAuthoritativeMainTurns === 'function' ? (buildAuthoritativeMainTurns()?.turns || []) : [];
+    const mixedOrchTurns = authTurns.filter(tr => {
+      const tCalls = Array.isArray(tr?.calls) ? tr.calls : [];
+      if (tCalls.length < 2) return false;
+      const hasPlanner = tCalls.some(c => /neon|carbon|argon|orchestrator/i.test(String(c?.attributedModelLabel || c?.modelLabel || c?.model || '')));
+      const hasExec = tCalls.some(c => /hydrogen|worker/i.test(String(c?.attributedModelLabel || c?.modelLabel || c?.model || '')));
+      return hasPlanner && hasExec;
+    });
 
-    // 提取本会话若曾跑过 Orchestrator 的真实平均命中率，无则用连续多轮稳态估计 (不再写死砍到 35%)
-    const orchCalls = calls.filter(c => /orchestrator|worker/i.test(String(c?.model || c?.attributedModelLabel || '')));
-    let steadyOrchHit = hitRate > 0 ? Math.max(0.55, hitRate * 0.85) : 0.65;
-    if (orchCalls.length > 0) {
-      let oTi = 0, oCr = 0;
-      for (const oc of orchCalls) {
-        const ti = Number(oc.inputTokens || 0) + Number(oc.cacheCreationInputTokens || 0) + Number(oc.cacheReadTokens ?? oc.cacheTokens ?? 0);
-        const cr = Number(oc.cacheReadTokens ?? oc.cacheTokens ?? 0);
-        oTi += ti;
-        oCr += cr;
+    const SYS_PREFIX_CACHE_FLOOR = 27500;
+    const recentTurnOuts = authTurns.slice(-8)
+      .map(tr => (tr.calls || []).reduce((s, c) => s + Math.max(0, Number(c?.outputTokens || 0)), 0))
+      .filter(v => v > 0);
+    const avgTurnOut = recentTurnOuts.length
+      ? Math.max(avgOut, Math.round(recentTurnOuts.reduce((a, b) => a + b, 0) / recentTurnOuts.length))
+      : avgOut;
+
+    let orchHandoffCacheTokens = Math.min(ctxTokens, SYS_PREFIX_CACHE_FLOOR);
+    let orchPlannerFrac = 0.25;
+    let orchHandoffSampleCount = 0;
+    let orchMeasuredAvgStepCalls = 2;
+
+    if (mixedOrchTurns.length > 0) {
+      let handoffCacheRatios = [];
+      let totalMixedSteps = 0;
+      for (const tr of mixedOrchTurns) {
+        const tCalls = tr.calls || [];
+        totalMixedSteps += tCalls.length;
+        for (let i = 1; i < tCalls.length; i++) {
+          const prevM = String(tCalls[i - 1]?.attributedModelLabel || tCalls[i - 1]?.modelLabel || tCalls[i - 1]?.model || '').toLowerCase();
+          const curM = String(tCalls[i]?.attributedModelLabel || tCalls[i]?.modelLabel || tCalls[i]?.model || '').toLowerCase();
+          const isHandoff = (prevM.includes('neon') || prevM.includes('carbon') || prevM.includes('argon')) && (curM.includes('hydrogen') || curM.includes('worker'));
+          if (isHandoff) {
+            const cIn = Number(tCalls[i]?.inputTokens || 0) + Number(tCalls[i]?.cacheCreationInputTokens || 0);
+            const cCr = Number(tCalls[i]?.cacheReadTokens ?? tCalls[i]?.cacheTokens ?? 0);
+            if (cIn + cCr > 0) {
+              handoffCacheRatios.push(cCr / (cIn + cCr));
+            }
+          }
+        }
       }
-      if (oTi > 0) steadyOrchHit = Math.max(0.35, Math.min(0.95, oCr / oTi));
+      orchMeasuredAvgStepCalls = Math.max(2, Math.round(totalMixedSteps / mixedOrchTurns.length));
+      if (handoffCacheRatios.length > 0) {
+        const avgRatio = handoffCacheRatios.reduce((a, b) => a + b, 0) / handoffCacheRatios.length;
+        orchHandoffCacheTokens = Math.round(ctxTokens * Math.max(0, Math.min(0.95, avgRatio)));
+        orchHandoffSampleCount = handoffCacheRatios.length;
+      }
     }
 
-    // 稳态单轮：轻量调度规划开销 (~8% 未全量前缀 + 350 输出) + Hydrogen 执行（高缓存保留）
-    const orchPlanTokens = Math.min(20000, Math.round(ctxTokens * 0.08));
-    const orchSteadyPlanUsd = (
-      orchPlanTokens * (1 - Math.min(0.75, steadyOrchHit)) * neonRates.inputPerMillion +
-      orchPlanTokens * Math.min(0.75, steadyOrchHit) * neonRates.cacheReadPerMillion +
-      350 * neonRates.outputPerMillion
+    // 真实交接模型：
+    // 1) 规划步 (Neon): 若已有长上下文，规划切回也会重算部分前缀或增量，估算约 25% 上下文增量（若已连续用 Orchestrator 且规划高命中则折扣）+ 规划输出
+    const orchPlanUncached = ctxTokens > SYS_PREFIX_CACHE_FLOOR
+      ? Math.round(Math.min(ctxTokens, Math.max(8000, ctxTokens * (isUsingOrch ? 0.12 : orchPlannerFrac))))
+      : ctxTokens;
+    const orchPlanCached = Math.max(0, ctxTokens - orchPlanUncached);
+    const orchPlanUsd = (
+      orchPlanUncached * neonRates.inputPerMillion +
+      orchPlanCached * neonRates.cacheReadPerMillion +
+      400 * neonRates.outputPerMillion
     ) / 1e6;
-    const orchSteadyExecUsd = calcDirectUsd(hydroRates, steadyOrchHit);
-    const orchSteadyUsd = orchSteadyPlanUsd + orchSteadyExecUsd;
 
-    // 首次从直连模型切到 Orchestrator 的冷切惩罚（一次性前缀约 35% 重建成本，仅长上下文且当前非 Orchestrator 时计入）
-    const coldSwitchRatio = (!isUsingOrch && ctxTokens >= 20000) ? 0.35 : 0;
-    const coldSwitchPenaltyUsd = (ctxTokens * coldSwitchRatio * (hydroRates.inputPerMillion - hydroRates.cacheReadPerMillion)) / 1e6;
-    const orchCompareUsd = orchSteadyUsd + coldSwitchPenaltyUsd;
+    // 2) 执行步 (Hydrogen): 交接第 1 跳仅命中系统前缀缓存 (实测 ~27.5K 或本对话实测均值)，其余对话历史重算；后续同模型工具连调按增量重算
+    const execUncachedHandoff = Math.max(0, ctxTokens - orchHandoffCacheTokens);
+    const followUpSteps = Math.max(0, Math.min(4, orchMeasuredAvgStepCalls - 2));
+    const followUpInput = followUpSteps * Math.min(8000, Math.round(ctxTokens * 0.018));
+    const followUpCache = followUpSteps * ctxTokens;
+    const orchExecUsd = (
+      execUncachedHandoff * hydroRates.inputPerMillion +
+      orchHandoffCacheTokens * hydroRates.cacheReadPerMillion +
+      followUpInput * hydroRates.inputPerMillion +
+      followUpCache * hydroRates.cacheReadPerMillion +
+      avgTurnOut * hydroRates.outputPerMillion
+    ) / 1e6;
+    const orchCompareUsd = orchPlanUsd + orchExecUsd;
+    const coldSwitchPenaltyUsd = Math.max(0, orchCompareUsd - calcDirectUsd(hydroRates, hitRate));
 
     const fx = getEffectiveUsdToCnyRate();
     const fmtCny = (usd) => {
@@ -3942,27 +3986,33 @@
       return cny < 0.01 ? '<¥0.01' : `¥${cny.toFixed(2)}`;
     };
 
+    const calcDirectTurnUsd = (rates, hit) => (
+      ctxTokens * (1 - hit) * rates.inputPerMillion +
+      ctxTokens * hit * rates.cacheReadPerMillion +
+      avgTurnOut * rates.outputPerMillion
+    ) / 1e6;
+
     const routes = [
       {
         id: 'hydrogen',
         label: '直连 Hydrogen',
-        usd: calcDirectUsd(hydroRates, hitRate),
-        meta: `保缓存 ${Math.round(hitRate * 100)}% · 输出 ${formatReqCompactTokens(avgOut)}`,
+        usd: calcDirectTurnUsd(hydroRates, hitRate),
+        meta: `本对话保缓存 ${Math.round(hitRate * 100)}% · 输出 ${formatReqCompactTokens(avgTurnOut)}`,
         promo: hydroRates.isPromo ? '限时优惠' : '',
         isCurrent: isUsingHydro
       },
       {
         id: 'neon',
         label: '直连 Neon',
-        usd: calcDirectUsd(neonRates, hitRate),
-        meta: `保缓存 ${Math.round(hitRate * 100)}% · 输出 $${neonRates.outputPerMillion}/M`,
+        usd: calcDirectTurnUsd(neonRates, hitRate),
+        meta: `本对话保缓存 ${Math.round(hitRate * 100)}% · 输出 $${neonRates.outputPerMillion}/M`,
         promo: neonRates.isPromo ? '限时优惠' : '',
         isCurrent: isUsingNeon
       },
       {
         id: 'carbon',
         label: '直连 Carbon',
-        usd: calcDirectUsd(carbonRates, hitRate),
+        usd: calcDirectTurnUsd(carbonRates, hitRate),
         meta: `缓存 $${carbonRates.cacheReadPerMillion}/M · 输出 $${carbonRates.outputPerMillion}/M`,
         promo: carbonRates.isPromo ? '限时优惠' : '',
         isCurrent: isUsingCarbon
@@ -3971,11 +4021,9 @@
         id: 'orch',
         label: 'Orchestrator',
         usd: orchCompareUsd,
-        steadyUsd: orchSteadyUsd,
-        coldPenaltyUsd: coldSwitchPenaltyUsd,
-        meta: coldSwitchPenaltyUsd * fx >= 0.01
-          ? `稳态 ${fmtCny(orchSteadyUsd)}/轮 · 首切丢缓存 +${fmtCny(coldSwitchPenaltyUsd)}`
-          : `稳态命中 ${Math.round(steadyOrchHit * 100)}% · 调度+Hydrogen`,
+        meta: orchHandoffSampleCount > 0
+          ? `本对话实测交接(${orchHandoffSampleCount}次) · 保前缀 ${formatReqCompactTokens(orchHandoffCacheTokens)}`
+          : `跨模型交接掉缓存 · 仅保 ${formatReqCompactTokens(orchHandoffCacheTokens)} 系统前缀`,
         promo: '',
         isCurrent: isUsingOrch
       }
@@ -3989,7 +4037,7 @@
         routes.push({
           id: 'active',
           label: `直连 ${activeRates.displayName || activeRawModel}`,
-          usd: calcDirectUsd(activeRates, hitRate),
+          usd: calcDirectTurnUsd(activeRates, hitRate),
           meta: `自动识别 · 缓存 $${activeRates.cacheReadPerMillion}/M`,
           promo: activeRates.isPromo ? '限时优惠' : '',
           isCurrent: true
@@ -4037,7 +4085,7 @@
     if (ctxTokens < 1000 && calls.length === 0) {
       badgeEl.setAttribute('data-winner', 'orch');
       badgeEl.textContent = '新会话建议：重代码用 Orchestrator';
-      if (reasonEl) reasonEl.textContent = '当前几乎无历史缓存包袱，多步/大段代码生成选 Orchestrator 更省；单轮短问答直连 Hydrogen 即可。';
+      if (reasonEl) reasonEl.textContent = '当前对话几乎无历史缓存包袱，多步/大段代码生成选 Orchestrator 更省；单轮短问答直连 Hydrogen 即可。';
     } else {
       const saveCny = Math.max(0.01, (runnerUp.usd - winner.usd) * fx);
       badgeEl.setAttribute('data-winner', winner.id === 'orch' ? 'orch' : 'neon');
@@ -4046,10 +4094,12 @@
         : `推荐 ${winner.label} · 省 ¥${saveCny.toFixed(2)}/轮`;
       if (reasonEl) {
         if (winner.id === 'orch') {
-          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)}，Orchestrator 稳态调度 Hydrogen（${fmtCny(winner.usd)}/轮）综合成本最低。`;
+          reasonEl.textContent = `基于本对话当前上下文 ${formatReqCompactTokens(ctxTokens)}，Orchestrator 跨模掉缓存影响仍小（约 ${fmtCny(winner.usd)}/轮）综合最低。`;
         } else {
-          const coldNote = coldSwitchPenaltyUsd * fx >= 0.01 ? `（切 Orchestrator 首跳丢缓存额外多花 ${fmtCny(coldSwitchPenaltyUsd)}）` : '';
-          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)} 且缓存命中 ${Math.round(hitRate * 100)}%，${winner.label} 保缓存${winner.promo ? '叠加限时优惠' : ''}最优${coldNote}。`;
+          const sampleNote = orchHandoffSampleCount > 0
+            ? `（本对话实测 Orchestrator 交接仅保 ${formatReqCompactTokens(orchHandoffCacheTokens)} 前缀，比直连贵 ${fmtCny(Math.max(0, orchCompareUsd - winner.usd))}）`
+            : `（长上下文切 Orchestrator 会丢对话历史缓存，单轮约 ${fmtCny(orchCompareUsd)}）`;
+          reasonEl.textContent = `基于本对话当前上下文 ${formatReqCompactTokens(ctxTokens)} 与 ${Math.round(hitRate * 100)}% 命中率，${winner.label} 保缓存${winner.promo ? '叠加限时优惠' : ''}最优${sampleNote}。`;
         }
       }
     }

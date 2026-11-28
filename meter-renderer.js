@@ -17400,6 +17400,94 @@
       color: var(--ag-text-muted);
     }
 
+    /* Token 统计区 · 所选周期总结省钱建议 */
+    .h-period-advisor-card {
+      margin-top: 10px;
+      padding: 11px 12px;
+      border-radius: 10px;
+      background: var(--ag-bg-card);
+      border: 1px solid var(--ag-border-card);
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .h-pa-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .h-pa-title {
+      font-size: 12.5px;
+      line-height: 18px;
+      font-weight: 600;
+      color: var(--ag-text-primary);
+    }
+
+    .h-pa-badge {
+      font-size: 11px;
+      line-height: 16px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(29, 143, 78, 0.12);
+      color: #1D8F4E;
+    }
+
+    :host(:not([data-theme="light"])) .h-pa-badge {
+      background: rgba(70, 224, 142, 0.16);
+      color: #46E08E;
+    }
+
+    .h-pa-reason {
+      font-size: 11.5px;
+      line-height: 17px;
+      color: var(--ag-text-secondary);
+    }
+
+    .h-pa-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      gap: 8px;
+    }
+
+    .h-pa-col {
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--ag-bg-subcard);
+      border: 1px solid var(--ag-border-subcard);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .h-pa-col.is-best {
+      border-color: var(--ag-accent, #0071E3);
+    }
+
+    .h-pa-col-lbl {
+      font-size: 11px;
+      line-height: 16px;
+      color: var(--ag-text-muted);
+      font-weight: 500;
+    }
+
+    .h-pa-col-val {
+      font-size: 15px;
+      line-height: 21px;
+      font-weight: 600;
+      color: var(--ag-text-primary);
+    }
+
+    .h-pa-col-meta {
+      font-size: 10.5px;
+      line-height: 15px;
+      color: var(--ag-text-muted);
+    }
+
     .ctx-ra-rule {
       font-size: 11px;
       line-height: 16px;
@@ -19130,6 +19218,14 @@
               style="color:var(--ag-token-accent-default,#a78bfa)">--</span>
           </div>
         </div>
+        <section id="h-period-advisor-card" class="h-period-advisor-card" hidden aria-label="所选周期总结省钱建议">
+          <div class="h-pa-hdr">
+            <span id="h-pa-title" class="h-pa-title">所选周期省钱建议</span>
+            <span id="h-pa-badge" class="h-pa-badge">分析中</span>
+          </div>
+          <div id="h-pa-reason" class="h-pa-reason"></div>
+          <div id="h-pa-grid" class="h-pa-grid"></div>
+        </section>
         <div class="heat-cost-disclaimer" data-i18n="tokens.heat.disclaimer">
           注：按日聚合按基础档估算，未拆分长上下文分档，结果偏下限。有逐请求记录时优先精确入账。
         </div>
@@ -29562,38 +29658,82 @@ try {
     const activeRawModel = String(lastCall?.model || state.lastData?.model || '').trim();
     const activeNorm = activeRawModel.toLowerCase();
     const isUsingOrch = /orchestrator|worker/.test(activeNorm);
-    const isUsingHydro = !isUsingOrch && /hydrogen/.test(activeNorm);
-    const isUsingNeon = !isUsingOrch && /neon/.test(activeNorm);
-    const isUsingCarbon = !isUsingOrch && /carbon/.test(activeNorm);
+    // 按当前对话实测逐轮数据校准（结合系统前缀保底法则 ~27.5K）
+    const authTurns = typeof buildAuthoritativeMainTurns === 'function' ? (buildAuthoritativeMainTurns()?.turns || []) : [];
+    const mixedOrchTurns = authTurns.filter(tr => {
+      const tCalls = Array.isArray(tr?.calls) ? tr.calls : [];
+      if (tCalls.length < 2) return false;
+      const hasPlanner = tCalls.some(c => /neon|carbon|argon|orchestrator/i.test(String(c?.attributedModelLabel || c?.modelLabel || c?.model || '')));
+      const hasExec = tCalls.some(c => /hydrogen|worker/i.test(String(c?.attributedModelLabel || c?.modelLabel || c?.model || '')));
+      return hasPlanner && hasExec;
+    });
 
-    // 提取本会话若曾跑过 Orchestrator 的真实平均命中率，无则用连续多轮稳态估计 (不再写死砍到 35%)
-    const orchCalls = calls.filter(c => /orchestrator|worker/i.test(String(c?.model || c?.attributedModelLabel || '')));
-    let steadyOrchHit = hitRate > 0 ? Math.max(0.55, hitRate * 0.85) : 0.65;
-    if (orchCalls.length > 0) {
-      let oTi = 0, oCr = 0;
-      for (const oc of orchCalls) {
-        const ti = Number(oc.inputTokens || 0) + Number(oc.cacheCreationInputTokens || 0) + Number(oc.cacheReadTokens ?? oc.cacheTokens ?? 0);
-        const cr = Number(oc.cacheReadTokens ?? oc.cacheTokens ?? 0);
-        oTi += ti;
-        oCr += cr;
+    const SYS_PREFIX_CACHE_FLOOR = 27500;
+    const recentTurnOuts = authTurns.slice(-8)
+      .map(tr => (tr.calls || []).reduce((s, c) => s + Math.max(0, Number(c?.outputTokens || 0)), 0))
+      .filter(v => v > 0);
+    const avgTurnOut = recentTurnOuts.length
+      ? Math.max(avgOut, Math.round(recentTurnOuts.reduce((a, b) => a + b, 0) / recentTurnOuts.length))
+      : avgOut;
+
+    let orchHandoffCacheTokens = Math.min(ctxTokens, SYS_PREFIX_CACHE_FLOOR);
+    let orchPlannerFrac = 0.25;
+    let orchHandoffSampleCount = 0;
+    let orchMeasuredAvgStepCalls = 2;
+
+    if (mixedOrchTurns.length > 0) {
+      let handoffCacheRatios = [];
+      let totalMixedSteps = 0;
+      for (const tr of mixedOrchTurns) {
+        const tCalls = tr.calls || [];
+        totalMixedSteps += tCalls.length;
+        for (let i = 1; i < tCalls.length; i++) {
+          const prevM = String(tCalls[i - 1]?.attributedModelLabel || tCalls[i - 1]?.modelLabel || tCalls[i - 1]?.model || '').toLowerCase();
+          const curM = String(tCalls[i]?.attributedModelLabel || tCalls[i]?.modelLabel || tCalls[i]?.model || '').toLowerCase();
+          const isHandoff = (prevM.includes('neon') || prevM.includes('carbon') || prevM.includes('argon')) && (curM.includes('hydrogen') || curM.includes('worker'));
+          if (isHandoff) {
+            const cIn = Number(tCalls[i]?.inputTokens || 0) + Number(tCalls[i]?.cacheCreationInputTokens || 0);
+            const cCr = Number(tCalls[i]?.cacheReadTokens ?? tCalls[i]?.cacheTokens ?? 0);
+            if (cIn + cCr > 0) {
+              handoffCacheRatios.push(cCr / (cIn + cCr));
+            }
+          }
+        }
       }
-      if (oTi > 0) steadyOrchHit = Math.max(0.35, Math.min(0.95, oCr / oTi));
+      orchMeasuredAvgStepCalls = Math.max(2, Math.round(totalMixedSteps / mixedOrchTurns.length));
+      if (handoffCacheRatios.length > 0) {
+        const avgRatio = handoffCacheRatios.reduce((a, b) => a + b, 0) / handoffCacheRatios.length;
+        orchHandoffCacheTokens = Math.round(ctxTokens * Math.max(0, Math.min(0.95, avgRatio)));
+        orchHandoffSampleCount = handoffCacheRatios.length;
+      }
     }
 
-    // 稳态单轮：轻量调度规划开销 (~8% 未全量前缀 + 350 输出) + Hydrogen 执行（高缓存保留）
-    const orchPlanTokens = Math.min(20000, Math.round(ctxTokens * 0.08));
-    const orchSteadyPlanUsd = (
-      orchPlanTokens * (1 - Math.min(0.75, steadyOrchHit)) * neonRates.inputPerMillion +
-      orchPlanTokens * Math.min(0.75, steadyOrchHit) * neonRates.cacheReadPerMillion +
-      350 * neonRates.outputPerMillion
+    // 真实交接模型：
+    // 1) 规划步 (Neon): 若已有长上下文，规划切回也会重算部分前缀或增量，估算约 25% 上下文增量（若已连续用 Orchestrator 且规划高命中则折扣）+ 规划输出
+    const orchPlanUncached = ctxTokens > SYS_PREFIX_CACHE_FLOOR
+      ? Math.round(Math.min(ctxTokens, Math.max(8000, ctxTokens * (isUsingOrch ? 0.12 : orchPlannerFrac))))
+      : ctxTokens;
+    const orchPlanCached = Math.max(0, ctxTokens - orchPlanUncached);
+    const orchPlanUsd = (
+      orchPlanUncached * neonRates.inputPerMillion +
+      orchPlanCached * neonRates.cacheReadPerMillion +
+      400 * neonRates.outputPerMillion
     ) / 1e6;
-    const orchSteadyExecUsd = calcDirectUsd(hydroRates, steadyOrchHit);
-    const orchSteadyUsd = orchSteadyPlanUsd + orchSteadyExecUsd;
 
-    // 首次从直连模型切到 Orchestrator 的冷切惩罚（一次性前缀约 35% 重建成本，仅长上下文且当前非 Orchestrator 时计入）
-    const coldSwitchRatio = (!isUsingOrch && ctxTokens >= 20000) ? 0.35 : 0;
-    const coldSwitchPenaltyUsd = (ctxTokens * coldSwitchRatio * (hydroRates.inputPerMillion - hydroRates.cacheReadPerMillion)) / 1e6;
-    const orchCompareUsd = orchSteadyUsd + coldSwitchPenaltyUsd;
+    // 2) 执行步 (Hydrogen): 交接第 1 跳仅命中系统前缀缓存 (实测 ~27.5K 或本对话实测均值)，其余对话历史重算；后续同模型工具连调按增量重算
+    const execUncachedHandoff = Math.max(0, ctxTokens - orchHandoffCacheTokens);
+    const followUpSteps = Math.max(0, Math.min(4, orchMeasuredAvgStepCalls - 2));
+    const followUpInput = followUpSteps * Math.min(8000, Math.round(ctxTokens * 0.018));
+    const followUpCache = followUpSteps * ctxTokens;
+    const orchExecUsd = (
+      execUncachedHandoff * hydroRates.inputPerMillion +
+      orchHandoffCacheTokens * hydroRates.cacheReadPerMillion +
+      followUpInput * hydroRates.inputPerMillion +
+      followUpCache * hydroRates.cacheReadPerMillion +
+      avgTurnOut * hydroRates.outputPerMillion
+    ) / 1e6;
+    const orchCompareUsd = orchPlanUsd + orchExecUsd;
+    const coldSwitchPenaltyUsd = Math.max(0, orchCompareUsd - calcDirectUsd(hydroRates, hitRate));
 
     const fx = getEffectiveUsdToCnyRate();
     const fmtCny = (usd) => {
@@ -29602,27 +29742,33 @@ try {
       return cny < 0.01 ? '<¥0.01' : `¥${cny.toFixed(2)}`;
     };
 
+    const calcDirectTurnUsd = (rates, hit) => (
+      ctxTokens * (1 - hit) * rates.inputPerMillion +
+      ctxTokens * hit * rates.cacheReadPerMillion +
+      avgTurnOut * rates.outputPerMillion
+    ) / 1e6;
+
     const routes = [
       {
         id: 'hydrogen',
         label: '直连 Hydrogen',
-        usd: calcDirectUsd(hydroRates, hitRate),
-        meta: `保缓存 ${Math.round(hitRate * 100)}% · 输出 ${formatReqCompactTokens(avgOut)}`,
+        usd: calcDirectTurnUsd(hydroRates, hitRate),
+        meta: `本对话保缓存 ${Math.round(hitRate * 100)}% · 输出 ${formatReqCompactTokens(avgTurnOut)}`,
         promo: hydroRates.isPromo ? '限时优惠' : '',
         isCurrent: isUsingHydro
       },
       {
         id: 'neon',
         label: '直连 Neon',
-        usd: calcDirectUsd(neonRates, hitRate),
-        meta: `保缓存 ${Math.round(hitRate * 100)}% · 输出 $${neonRates.outputPerMillion}/M`,
+        usd: calcDirectTurnUsd(neonRates, hitRate),
+        meta: `本对话保缓存 ${Math.round(hitRate * 100)}% · 输出 $${neonRates.outputPerMillion}/M`,
         promo: neonRates.isPromo ? '限时优惠' : '',
         isCurrent: isUsingNeon
       },
       {
         id: 'carbon',
         label: '直连 Carbon',
-        usd: calcDirectUsd(carbonRates, hitRate),
+        usd: calcDirectTurnUsd(carbonRates, hitRate),
         meta: `缓存 $${carbonRates.cacheReadPerMillion}/M · 输出 $${carbonRates.outputPerMillion}/M`,
         promo: carbonRates.isPromo ? '限时优惠' : '',
         isCurrent: isUsingCarbon
@@ -29631,11 +29777,9 @@ try {
         id: 'orch',
         label: 'Orchestrator',
         usd: orchCompareUsd,
-        steadyUsd: orchSteadyUsd,
-        coldPenaltyUsd: coldSwitchPenaltyUsd,
-        meta: coldSwitchPenaltyUsd * fx >= 0.01
-          ? `稳态 ${fmtCny(orchSteadyUsd)}/轮 · 首切丢缓存 +${fmtCny(coldSwitchPenaltyUsd)}`
-          : `稳态命中 ${Math.round(steadyOrchHit * 100)}% · 调度+Hydrogen`,
+        meta: orchHandoffSampleCount > 0
+          ? `本对话实测交接(${orchHandoffSampleCount}次) · 保前缀 ${formatReqCompactTokens(orchHandoffCacheTokens)}`
+          : `跨模型交接掉缓存 · 仅保 ${formatReqCompactTokens(orchHandoffCacheTokens)} 系统前缀`,
         promo: '',
         isCurrent: isUsingOrch
       }
@@ -29649,7 +29793,7 @@ try {
         routes.push({
           id: 'active',
           label: `直连 ${activeRates.displayName || activeRawModel}`,
-          usd: calcDirectUsd(activeRates, hitRate),
+          usd: calcDirectTurnUsd(activeRates, hitRate),
           meta: `自动识别 · 缓存 $${activeRates.cacheReadPerMillion}/M`,
           promo: activeRates.isPromo ? '限时优惠' : '',
           isCurrent: true
@@ -29697,7 +29841,7 @@ try {
     if (ctxTokens < 1000 && calls.length === 0) {
       badgeEl.setAttribute('data-winner', 'orch');
       badgeEl.textContent = '新会话建议：重代码用 Orchestrator';
-      if (reasonEl) reasonEl.textContent = '当前几乎无历史缓存包袱，多步/大段代码生成选 Orchestrator 更省；单轮短问答直连 Hydrogen 即可。';
+      if (reasonEl) reasonEl.textContent = '当前对话几乎无历史缓存包袱，多步/大段代码生成选 Orchestrator 更省；单轮短问答直连 Hydrogen 即可。';
     } else {
       const saveCny = Math.max(0.01, (runnerUp.usd - winner.usd) * fx);
       badgeEl.setAttribute('data-winner', winner.id === 'orch' ? 'orch' : 'neon');
@@ -29706,10 +29850,12 @@ try {
         : `推荐 ${winner.label} · 省 ¥${saveCny.toFixed(2)}/轮`;
       if (reasonEl) {
         if (winner.id === 'orch') {
-          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)}，Orchestrator 稳态调度 Hydrogen（${fmtCny(winner.usd)}/轮）综合成本最低。`;
+          reasonEl.textContent = `基于本对话当前上下文 ${formatReqCompactTokens(ctxTokens)}，Orchestrator 跨模掉缓存影响仍小（约 ${fmtCny(winner.usd)}/轮）综合最低。`;
         } else {
-          const coldNote = coldSwitchPenaltyUsd * fx >= 0.01 ? `（切 Orchestrator 首跳丢缓存额外多花 ${fmtCny(coldSwitchPenaltyUsd)}）` : '';
-          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)} 且缓存命中 ${Math.round(hitRate * 100)}%，${winner.label} 保缓存${winner.promo ? '叠加限时优惠' : ''}最优${coldNote}。`;
+          const sampleNote = orchHandoffSampleCount > 0
+            ? `（本对话实测 Orchestrator 交接仅保 ${formatReqCompactTokens(orchHandoffCacheTokens)} 前缀，比直连贵 ${fmtCny(Math.max(0, orchCompareUsd - winner.usd))}）`
+            : `（长上下文切 Orchestrator 会丢对话历史缓存，单轮约 ${fmtCny(orchCompareUsd)}）`;
+          reasonEl.textContent = `基于本对话当前上下文 ${formatReqCompactTokens(ctxTokens)} 与 ${Math.round(hitRate * 100)}% 命中率，${winner.label} 保缓存${winner.promo ? '叠加限时优惠' : ''}最优${sampleNote}。`;
         }
       }
     }
@@ -49868,6 +50014,234 @@ var cumLockedKey = null;
     } else if (subRatioWrapEl) {
       subRatioWrapEl.style.display = 'none';
     }
+
+    renderPeriodSavingsAdvisor(viewType, dateKeys, costAgg);
+  }
+
+  function renderPeriodSavingsAdvisor(viewType, dateKeys = [], costAgg = null) {
+    const card = el('h-period-advisor-card');
+    const titleEl = el('h-pa-title');
+    const badgeEl = el('h-pa-badge');
+    const reasonEl = el('h-pa-reason');
+    const gridEl = el('h-pa-grid');
+    if (!card || !titleEl || !badgeEl || !gridEl) return;
+
+    const core = globalThis.__AGContextMeterCore || {};
+    if (typeof core.calculateReferenceModelCost !== 'function') {
+      card.hidden = true;
+      return;
+    }
+
+    const keys = Array.isArray(dateKeys) ? dateKeys.filter(Boolean) : [];
+    const dmMap = ANTIGRAVITY_TOKEN_DATA?.dailyModelMap || {};
+    const dMap = ANTIGRAVITY_TOKEN_DATA?.dailyMap || {};
+    const metaMap = ANTIGRAVITY_TOKEN_DATA?.modelMetaByKey || {};
+    const fx = typeof getEffectiveUsdToCnyRate === 'function' ? getEffectiveUsdToCnyRate() : 6.67;
+
+    let actualUSD = 0;
+    let ifAllHydroUSD = 0;
+    let ifAllCarbonUSD = 0;
+    let cacheLossUSD = 0;
+    let totalTokens = 0;
+    let uncachedTokens = 0;
+    let cacheTokens = 0;
+    let highPriceTokens = 0;
+    const byModelFamily = new Map();
+
+    const todayStr = formatLocalYmd(new Date());
+    const resolveKey = (rawKey) => {
+      if (typeof resolveDailyModelKeyForPricing === 'function') {
+        return resolveDailyModelKeyForPricing(rawKey, metaMap, 'gemini-3.8-flash');
+      }
+      const raw = String(rawKey || '').trim();
+      if (!raw || raw === '__unattributed__') return 'gemini-3.8-flash';
+      if (raw.startsWith('orchestrator:')) return `gemini-4-${raw.slice('orchestrator:'.length).split(':')[0].trim()}`;
+      return raw.split(':')[0].trim() || 'gemini-3.8-flash';
+    };
+
+    for (const dKey of keys) {
+      if (dKey > todayStr) continue;
+      const dayModels = dmMap[dKey];
+      if (dayModels && typeof dayModels === 'object' && Object.keys(dayModels).length > 0) {
+        for (const [rawKey, rec] of Object.entries(dayModels)) {
+          if (!rec || typeof rec !== 'object') continue;
+          const inp = Math.max(0, Number(rec.input) || 0);
+          const ca = Math.max(0, Number(rec.cache) || 0);
+          const out = Math.max(0, Number(rec.output) || 0);
+          const tot = Math.max(0, Number(rec.total) || (inp + ca + out));
+          if (tot <= 0 && inp + ca + out <= 0) continue;
+
+          const usage = { inputTokens: inp, cacheTokens: ca, outputTokens: out, totalTokens: tot };
+          const mk = resolveKey(rawKey);
+          let cAct = core.calculateReferenceModelCost(usage, mk, { pricingDate: dKey, mode: 'all' });
+          if (!cAct || cAct.isPriced === false || cAct.totalCostUSD == null) {
+            cAct = core.calculateReferenceModelCost(usage, 'gemini-3.8-flash', { pricingDate: dKey, mode: 'all' });
+          }
+          const actUsd = Number(cAct?.totalCostUSD || 0);
+          actualUSD += actUsd;
+          totalTokens += tot;
+          uncachedTokens += inp;
+          cacheTokens += ca;
+
+          const prev = byModelFamily.get(mk) || { tokens: 0, usd: 0 };
+          prev.tokens += tot;
+          prev.usd += actUsd;
+          byModelFamily.set(mk, prev);
+
+          const cHydro = core.calculateReferenceModelCost(usage, 'gemini-4-hydrogen', { pricingDate: dKey, mode: 'all' });
+          const cCarbon = core.calculateReferenceModelCost(usage, 'gemini-4-carbon', { pricingDate: dKey, mode: 'all' });
+          const hydroUsd = Number(cHydro?.totalCostUSD || actUsd);
+          const carbonUsd = Number(cCarbon?.totalCostUSD || actUsd);
+
+          const isCheaperThanHydro = (mk === 'gemini-3.8-flash' || mk === 'gemini-3.5-flash-lite');
+          ifAllHydroUSD += isCheaperThanHydro ? actUsd : Math.min(actUsd, hydroUsd);
+          ifAllCarbonUSD += isCheaperThanHydro ? actUsd : carbonUsd;
+
+          if (!isCheaperThanHydro && actUsd > hydroUsd * 1.15) {
+            highPriceTokens += tot;
+          }
+
+          // 若能保持 85% 命中率，本可从缓存读取节省的费用
+          const tier = cAct?.matchedTier;
+          if (tier && inp + ca > 0) {
+            const targetUncached = (inp + ca) * 0.15;
+            if (inp > targetUncached) {
+              const extraUncached = inp - targetUncached;
+              const diffPerM = Math.max(0, Number(tier.inputPerMillion || 0) - Number(tier.cacheReadPerMillion || 0));
+              cacheLossUSD += (extraUncached * diffPerM) / 1e6;
+            }
+          }
+        }
+      } else if (dMap[dKey] && Number(dMap[dKey].total) > 0) {
+        const dr = dMap[dKey];
+        const inp = Math.max(0, Number(dr.input) || 0);
+        const ca = Math.max(0, Number(dr.cache) || 0);
+        const out = Math.max(0, Number(dr.output) || 0);
+        const tot = Math.max(0, Number(dr.total) || (inp + ca + out));
+        const usage = { inputTokens: inp, cacheTokens: ca, outputTokens: out, totalTokens: tot };
+        const cAct = core.calculateReferenceModelCost(usage, 'gemini-3.8-flash', { pricingDate: dKey, mode: 'all' });
+        const actUsd = Number(cAct?.totalCostUSD || 0);
+        actualUSD += actUsd;
+        ifAllHydroUSD += actUsd;
+        ifAllCarbonUSD += actUsd;
+        totalTokens += tot;
+        uncachedTokens += inp;
+        cacheTokens += ca;
+      }
+    }
+
+    if (totalTokens <= 0 || actualUSD <= 0) {
+      card.hidden = true;
+      return;
+    }
+
+    // 月度视图如对齐了本月后端权威混合总价则同步差额锚点
+    if (viewType === 'monthly' && heatMonthOffset === 0) {
+      const authMonthUsd = Number(ANTIGRAVITY_TOKEN_DATA?.referenceCost?.currentMonthHybrid?.hybrid?.combinedTotalUSD || 0);
+      if (authMonthUsd > 0 && Math.abs(authMonthUsd - actualUSD) > 0.01) {
+        const scale = authMonthUsd / Math.max(0.0001, actualUSD);
+        actualUSD = authMonthUsd;
+        ifAllHydroUSD = ifAllHydroUSD * scale;
+        ifAllCarbonUSD = ifAllCarbonUSD * scale;
+      }
+    }
+
+    card.hidden = false;
+    const periodNames = {
+      daily: '近12月每日窗口',
+      weekly: '近52周周期',
+      monthly: (() => {
+        const d = new Date(new Date().getFullYear(), new Date().getMonth() + (typeof heatMonthOffset === 'number' ? heatMonthOffset : 0), 1);
+        return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+      })(),
+      yearly: `${new Date().getFullYear() + (typeof heatYearOffset === 'number' ? heatYearOffset : 0)}全年`,
+      cum: '累计区间'
+    };
+    const pLabel = periodNames[viewType] || '当前所选周期';
+    titleEl.textContent = `所选周期总结省钱建议 · ${pLabel}`;
+
+    const fmtCny = (usd) => {
+      const cny = Number(usd || 0) * fx;
+      return cny < 0.01 ? '<¥0.01' : `¥${cny.toFixed(2)}`;
+    };
+
+    const hydroSaveUSD = Math.max(0, actualUSD - ifAllHydroUSD);
+    const carbonSaveUSD = Math.max(0, actualUSD - ifAllCarbonUSD);
+    const topFamilies = Array.from(byModelFamily.entries())
+      .sort((a, b) => b[1].usd - a[1].usd)
+      .slice(0, 3)
+      .map(([k, v]) => `${k.replace('gemini-4-', '').replace('gemini-3.8-', '3.8-')} ${Math.round((v.usd / Math.max(0.0001, actualUSD)) * 100)}%`)
+      .join(' · ');
+    const hitPctAll = (uncachedTokens + cacheTokens) > 0 ? ((cacheTokens / (uncachedTokens + cacheTokens)) * 100).toFixed(1) : '0.0';
+
+    const saveCnyHydro = hydroSaveUSD * fx;
+    const cacheLossCny = cacheLossUSD * fx;
+    if (saveCnyHydro >= 1 || cacheLossCny >= 1) {
+      const totalPotentialCny = saveCnyHydro + cacheLossCny;
+      badgeEl.setAttribute('data-tone', 'save');
+      badgeEl.textContent = `优化潜力约省 ¥${totalPotentialCny.toFixed(2)}`;
+    } else {
+      badgeEl.setAttribute('data-tone', 'good');
+      badgeEl.textContent = '当前周期路由与缓存健康';
+    }
+
+    if (reasonEl) {
+      const parts = [`本周期实花 ${fmtCny(actualUSD)}（命中率 ${hitPctAll}%${topFamilies ? ` · 支出占比 ${topFamilies}` : ''}）。`];
+      if (saveCnyHydro >= 0.5) {
+        parts.push(`将高价模型（Neon/Opus/Carbon）改用直连 Hydrogen 约可省 ${fmtCny(hydroSaveUSD)}；`);
+      }
+      if (cacheLossCny >= 0.5) {
+        parts.push(`未命中缓存输入额外多付约 ${fmtCny(cacheLossUSD)}，建议减少跨模型切换与长停顿冷重算。`);
+      } else {
+        parts.push('缓存保持良好，无明显掉缓存额外损失。');
+      }
+      reasonEl.textContent = parts.join('');
+    }
+
+    const cards = [
+      {
+        lbl: '本周期实际花费',
+        val: fmtCny(actualUSD),
+        meta: `${fmtYi(totalTokens)} Token · ${topFamilies || '混合计价'}`,
+        best: saveCnyHydro < 0.5 && cacheLossCny < 0.5
+      },
+      {
+        lbl: '高耗改用 Hydrogen',
+        val: fmtCny(ifAllHydroUSD),
+        meta: saveCnyHydro >= 0.01 ? `比实花省 ${fmtCny(hydroSaveUSD)}` : '已接近最低模型档',
+        best: saveCnyHydro >= 0.5 && ifAllHydroUSD <= ifAllCarbonUSD
+      },
+      {
+        lbl: '同周期 Carbon (含优惠)',
+        val: fmtCny(ifAllCarbonUSD),
+        meta: carbonSaveUSD > 0.01 ? `比实花省 ${fmtCny(carbonSaveUSD)}` : `比 Hydrogen 贵 ${fmtCny(Math.max(0, ifAllCarbonUSD - ifAllHydroUSD))}`,
+        best: false
+      },
+      {
+        lbl: '掉缓存额外损耗',
+        val: fmtCny(cacheLossUSD),
+        meta: `当前平均命中 ${hitPctAll}%（vs 85% 基准）`,
+        best: false
+      }
+    ];
+
+    gridEl.replaceChildren(...cards.map(c => {
+      const box = document.createElement('div');
+      box.className = `h-pa-col${c.best ? ' is-best' : ''}`;
+      const l = document.createElement('div');
+      l.className = 'h-pa-col-lbl';
+      l.textContent = c.lbl;
+      const v = document.createElement('div');
+      v.className = 'h-pa-col-val';
+      v.textContent = c.val;
+      const m = document.createElement('div');
+      m.className = 'h-pa-col-meta';
+      m.textContent = c.meta;
+      box.appendChild(l);
+      box.appendChild(v);
+      box.appendChild(m);
+      return box;
+    }));
   }
 
   function renderHeatmapMonthly() {
@@ -70338,7 +70712,7 @@ if (typeof dismissNextPromptSuggestion === 'function') dismissNextPromptSuggesti
   }
 
   globalThis.__AGContextMeter = {
-    buildId: '63416c7150bb7cba',
+    buildId: '2efaa322ccbe14d9',
     version: METER_RENDERER_VERSION,
     ensureAlive: () => {
       if (state.disposed) return false;
