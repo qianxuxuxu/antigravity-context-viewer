@@ -1186,7 +1186,87 @@
   let heatMonthOffset = 0;
   let heatYearOffset = 0;
   let activeCostModel = 'gemini-3.8-flash';
-  let activeCostMode = 'ref';
+  let activeCostMode = 'hybrid';
+
+  function resolveDailyModelKeyForPricing(rawKey, metaMap = {}, fallbackModelKey = 'gemini-3.8-flash') {
+    const raw = String(rawKey || '').trim();
+    if (!raw || raw === '__unattributed__') return fallbackModelKey;
+    const metaKey = metaMap?.[raw]?.modelKey;
+    if (metaKey && !/^__/.test(metaKey) && metaKey !== 'orchestrator') return metaKey;
+    if (raw.startsWith('orchestrator:')) {
+      const sub = raw.slice('orchestrator:'.length).split(':')[0].trim().toLowerCase();
+      if (sub === 'neon' || sub === 'carbon' || sub === 'argon' || sub === 'hydrogen') return `gemini-4-${sub}`;
+    }
+    const base = raw.split(':')[0].trim();
+    if (!base || base === 'orchestrator' || base === 'unknown') return fallbackModelKey;
+    return base;
+  }
+
+  function calculateDailyHybridCost(dayRecord, dateKey, fallbackModelKey = 'gemini-3.8-flash', options = {}) {
+    const core = typeof __AGContextMeterCore !== 'undefined' ? __AGContextMeterCore : null;
+    const dModelDay = ANTIGRAVITY_TOKEN_DATA?.dailyModelMap?.[dateKey];
+    const metaMap = ANTIGRAVITY_TOKEN_DATA?.modelMetaByKey || {};
+    if (dModelDay && typeof dModelDay === 'object' && core && typeof core.calculateReferenceModelCost === 'function') {
+      const entries = Object.entries(dModelDay).filter(([, r]) => r && (Number(r.total) > 0 || Number(r.input) > 0 || Number(r.output) > 0 || Number(r.cache) > 0));
+      if (entries.length > 0) {
+        let costUSD = 0, inputCost = 0, cacheCost = 0, outputCost = 0;
+        for (const [rawKey, rec] of entries) {
+          let resolvedKey = resolveDailyModelKeyForPricing(rawKey, metaMap, fallbackModelKey);
+          const usage = {
+            inputTokens: Math.max(0, Number(rec.input) || 0),
+            cacheTokens: Math.max(0, Number(rec.cache) || 0),
+            outputTokens: Math.max(0, Number(rec.output) || 0),
+            totalTokens: Math.max(0, Number(rec.total) || ((Number(rec.input) || 0) + (Number(rec.cache) || 0) + (Number(rec.output) || 0)))
+          };
+          let calc = core.calculateReferenceModelCost(usage, resolvedKey, { pricingDate: dateKey, mode: 'all' });
+          if (!calc || calc.isPriced === false || calc.totalCostUSD == null) {
+            calc = core.calculateReferenceModelCost(usage, fallbackModelKey, { pricingDate: dateKey, mode: 'all' });
+          }
+          costUSD += Number(calc?.totalCostUSD || 0);
+          inputCost += Number(calc?.inputCostUSD ?? calc?.breakdownCostUSD?.input ?? 0);
+          cacheCost += Number(calc?.cacheCostUSD ?? calc?.breakdownCostUSD?.cache ?? 0);
+          outputCost += Number(calc?.outputCostUSD ?? calc?.breakdownCostUSD?.output ?? 0);
+        }
+        return { costUSD, inputCost, cacheCost, outputCost };
+      }
+    }
+    return getDailyModelCost(dayRecord, dateKey, fallbackModelKey, { ...options, mode: 'ref' });
+  }
+
+  function calculateIntervalHybridCost(dailyMap = {}, dateKeys = [], fallbackModelKey = 'gemini-3.8-flash', options = {}) {
+    const todayStr = options.todayStr || getTodayLocalYmd();
+    let totalTokens = 0, inputTokens = 0, cacheTokens = 0, outputTokens = 0, totalCostUSD = 0;
+    let pastDays = 0, activeDays = 0;
+    for (const key of dateKeys) {
+      if (key <= todayStr) pastDays++;
+      const rec = dailyMap?.[key];
+      const dModelDay = ANTIGRAVITY_TOKEN_DATA?.dailyModelMap?.[key];
+      const hasModelEntries = Boolean(dModelDay && typeof dModelDay === 'object' && Object.values(dModelDay).some(r => r && Number(r.total) > 0));
+      if ((rec && rec.total > 0) || hasModelEntries) {
+        activeDays++;
+        totalTokens += Number(rec?.total || 0);
+        inputTokens += Number(rec?.input || 0);
+        cacheTokens += Number(rec?.cache || 0);
+        outputTokens += Number(rec?.output || 0);
+        const c = calculateDailyHybridCost(rec, key, fallbackModelKey, options);
+        totalCostUSD += Number(c?.costUSD || 0);
+      }
+    }
+    const safePastDays = Math.max(1, pastDays);
+    const dailyAverageUSD = Number((totalCostUSD / safePastDays).toFixed(4));
+    const activeDailyAverageUSD = activeDays > 0 ? Number((totalCostUSD / activeDays).toFixed(4)) : 0;
+    return {
+      totalTokens,
+      inputTokens,
+      cacheTokens,
+      outputTokens,
+      totalCostUSD,
+      pastDays: safePastDays,
+      activeDays,
+      dailyAverageUSD,
+      activeDailyAverageUSD
+    };
+  }
   const FX_YESTERDAY_STORAGE_KEY = 'ag_fx_usd_cny_yesterday_v1';
   let cachedYesterdayUsdToCny = null;
   let fxRefreshStarted = false;
@@ -3800,8 +3880,8 @@
 
     const outList = calls.map(c => Number(c?.outputTokens || 0)).filter(v => v > 0);
     const avgOut = outList.length
-      ? Math.max(800, Math.min(8000, Math.round(outList.reduce((a, b) => a + b, 0) / outList.length)))
-      : 1800;
+      ? Math.max(250, Math.min(8000, Math.round(outList.reduce((a, b) => a + b, 0) / outList.length)))
+      : 1000;
 
     const calcDirectUsd = (rates, hit) => (
       ctxTokens * (1 - hit) * rates.inputPerMillion +
@@ -3809,58 +3889,100 @@
       avgOut * rates.outputPerMillion
     ) / 1e6;
 
+    const hydroRates = resolveLiveModelRates('gemini-4-hydrogen', todayYmd, ctxTokens) || {
+      displayName: 'Gemini 4 Hydrogen', inputPerMillion: 1.50, cacheReadPerMillion: 0.075, outputPerMillion: 7.50, isPromo: false
+    };
     const neonRates = resolveLiveModelRates('gemini-4-neon', todayYmd, ctxTokens) || {
       displayName: 'Gemini 4 Neon', inputPerMillion: 3.00, cacheReadPerMillion: 0.15, outputPerMillion: 15.00, isPromo: false
     };
     const carbonRates = resolveLiveModelRates('gemini-4-carbon', todayYmd, ctxTokens) || {
       displayName: 'Gemini 4 Carbon', inputPerMillion: 4.00, cacheReadPerMillion: 0.20, outputPerMillion: 20.00, isPromo: false
     };
-    const hydroRates = resolveLiveModelRates('gemini-4-hydrogen', todayYmd, ctxTokens) || {
-      displayName: 'Gemini 4 Hydrogen', inputPerMillion: 1.50, cacheReadPerMillion: 0.075, outputPerMillion: 7.50, isPromo: false
+
+    const activeRawModel = String(lastCall?.model || state.lastData?.model || '').trim();
+    const activeNorm = activeRawModel.toLowerCase();
+    const isUsingOrch = /orchestrator|worker/.test(activeNorm);
+    const isUsingHydro = !isUsingOrch && /hydrogen/.test(activeNorm);
+    const isUsingNeon = !isUsingOrch && /neon/.test(activeNorm);
+    const isUsingCarbon = !isUsingOrch && /carbon/.test(activeNorm);
+
+    // 提取本会话若曾跑过 Orchestrator 的真实平均命中率，无则用连续多轮稳态估计 (不再写死砍到 35%)
+    const orchCalls = calls.filter(c => /orchestrator|worker/i.test(String(c?.model || c?.attributedModelLabel || '')));
+    let steadyOrchHit = hitRate > 0 ? Math.max(0.55, hitRate * 0.85) : 0.65;
+    if (orchCalls.length > 0) {
+      let oTi = 0, oCr = 0;
+      for (const oc of orchCalls) {
+        const ti = Number(oc.inputTokens || 0) + Number(oc.cacheCreationInputTokens || 0) + Number(oc.cacheReadTokens ?? oc.cacheTokens ?? 0);
+        const cr = Number(oc.cacheReadTokens ?? oc.cacheTokens ?? 0);
+        oTi += ti;
+        oCr += cr;
+      }
+      if (oTi > 0) steadyOrchHit = Math.max(0.35, Math.min(0.95, oCr / oTi));
+    }
+
+    // 稳态单轮：轻量调度规划开销 (~8% 未全量前缀 + 350 输出) + Hydrogen 执行（高缓存保留）
+    const orchPlanTokens = Math.min(20000, Math.round(ctxTokens * 0.08));
+    const orchSteadyPlanUsd = (
+      orchPlanTokens * (1 - Math.min(0.75, steadyOrchHit)) * neonRates.inputPerMillion +
+      orchPlanTokens * Math.min(0.75, steadyOrchHit) * neonRates.cacheReadPerMillion +
+      350 * neonRates.outputPerMillion
+    ) / 1e6;
+    const orchSteadyExecUsd = calcDirectUsd(hydroRates, steadyOrchHit);
+    const orchSteadyUsd = orchSteadyPlanUsd + orchSteadyExecUsd;
+
+    // 首次从直连模型切到 Orchestrator 的冷切惩罚（一次性前缀约 35% 重建成本，仅长上下文且当前非 Orchestrator 时计入）
+    const coldSwitchRatio = (!isUsingOrch && ctxTokens >= 20000) ? 0.35 : 0;
+    const coldSwitchPenaltyUsd = (ctxTokens * coldSwitchRatio * (hydroRates.inputPerMillion - hydroRates.cacheReadPerMillion)) / 1e6;
+    const orchCompareUsd = orchSteadyUsd + coldSwitchPenaltyUsd;
+
+    const fx = getEffectiveUsdToCnyRate();
+    const fmtCny = (usd) => {
+      const cny = usd * fx;
+      if (cny <= 0) return '¥0.00';
+      return cny < 0.01 ? '<¥0.01' : `¥${cny.toFixed(2)}`;
     };
 
-    const planHit = Math.min(hitRate, 0.50);
-    const orchExecHit = Math.min(0.35, hitRate * 0.40);
-    const orchPlanUsd = (
-      ctxTokens * 0.35 * (1 - planHit) * neonRates.inputPerMillion +
-      ctxTokens * 0.35 * planHit * neonRates.cacheReadPerMillion +
-      400 * neonRates.outputPerMillion
-    ) / 1e6;
-    const orchExecUsd = (
-      ctxTokens * (1 - orchExecHit) * hydroRates.inputPerMillion +
-      ctxTokens * orchExecHit * hydroRates.cacheReadPerMillion +
-      avgOut * hydroRates.outputPerMillion
-    ) / 1e6;
-    const orchUsd = orchPlanUsd + orchExecUsd;
-
     const routes = [
+      {
+        id: 'hydrogen',
+        label: '直连 Hydrogen',
+        usd: calcDirectUsd(hydroRates, hitRate),
+        meta: `保缓存 ${Math.round(hitRate * 100)}% · 输出 ${formatReqCompactTokens(avgOut)}`,
+        promo: hydroRates.isPromo ? '限时优惠' : '',
+        isCurrent: isUsingHydro
+      },
       {
         id: 'neon',
         label: '直连 Neon',
         usd: calcDirectUsd(neonRates, hitRate),
-        meta: `保缓存 ${Math.round(hitRate * 100)}% · 输出 ${formatReqCompactTokens(avgOut)}`,
-        promo: neonRates.isPromo ? '限时优惠' : ''
+        meta: `保缓存 ${Math.round(hitRate * 100)}% · 输出 $${neonRates.outputPerMillion}/M`,
+        promo: neonRates.isPromo ? '限时优惠' : '',
+        isCurrent: isUsingNeon
       },
       {
         id: 'carbon',
         label: '直连 Carbon',
         usd: calcDirectUsd(carbonRates, hitRate),
         meta: `缓存 $${carbonRates.cacheReadPerMillion}/M · 输出 $${carbonRates.outputPerMillion}/M`,
-        promo: carbonRates.isPromo ? '限时优惠' : ''
+        promo: carbonRates.isPromo ? '限时优惠' : '',
+        isCurrent: isUsingCarbon
       },
       {
         id: 'orch',
         label: 'Orchestrator',
-        usd: orchUsd,
-        meta: `切换命中 ${Math.round(orchExecHit * 100)}% · 调度+Hydrogen`,
-        promo: ''
+        usd: orchCompareUsd,
+        steadyUsd: orchSteadyUsd,
+        coldPenaltyUsd: coldSwitchPenaltyUsd,
+        meta: coldSwitchPenaltyUsd * fx >= 0.01
+          ? `稳态 ${fmtCny(orchSteadyUsd)}/轮 · 首切丢缓存 +${fmtCny(coldSwitchPenaltyUsd)}`
+          : `稳态命中 ${Math.round(steadyOrchHit * 100)}% · 调度+Hydrogen`,
+        promo: '',
+        isCurrent: isUsingOrch
       }
     ];
 
-    // 自动发现当前会话活跃模型或动态目录中的新模型（如后续新出的模型）
-    const activeRawModel = String(lastCall?.model || state.lastData?.model || '').trim();
-    const activeNorm = activeRawModel.toLowerCase();
-    const isAlreadyListed = !activeNorm || /(neon|carbon|hydrogen)/i.test(activeNorm);
+    // 自动发现其他新模型（如 Argon / Claude / 未来模型）
+    const isAlreadyListed = !activeNorm || /(neon|carbon|hydrogen|orchestrator|worker)/i.test(activeNorm);
     if (!isAlreadyListed) {
       const activeRates = resolveLiveModelRates(activeRawModel, todayYmd, ctxTokens);
       if (activeRates) {
@@ -3869,17 +3991,11 @@
           label: `直连 ${activeRates.displayName || activeRawModel}`,
           usd: calcDirectUsd(activeRates, hitRate),
           meta: `自动识别 · 缓存 $${activeRates.cacheReadPerMillion}/M`,
-          promo: activeRates.isPromo ? '限时优惠' : ''
+          promo: activeRates.isPromo ? '限时优惠' : '',
+          isCurrent: true
         });
       }
     }
-
-    const fx = getEffectiveUsdToCnyRate();
-    const fmtCny = (usd) => {
-      const cny = usd * fx;
-      if (cny <= 0) return '¥0.00';
-      return cny < 0.01 ? '<¥0.01' : `¥${cny.toFixed(2)}`;
-    };
 
     const sorted = routes.slice().sort((a, b) => a.usd - b.usd);
     const winner = sorted[0];
@@ -3892,6 +4008,12 @@
         const lbl = document.createElement('div');
         lbl.className = 'ctx-ra-col-lbl';
         lbl.textContent = r.label;
+        if (r.isCurrent) {
+          const cTag = document.createElement('span');
+          cTag.className = 'ctx-ra-cur-tag';
+          cTag.textContent = '当前';
+          lbl.appendChild(cTag);
+        }
         if (r.promo) {
           const tag = document.createElement('span');
           tag.className = 'ctx-ra-promo-tag';
@@ -3915,16 +4037,19 @@
     if (ctxTokens < 1000 && calls.length === 0) {
       badgeEl.setAttribute('data-winner', 'orch');
       badgeEl.textContent = '新会话建议：重代码用 Orchestrator';
-      if (reasonEl) reasonEl.textContent = '当前几乎无历史缓存包袱，多步/大段代码生成选 Orchestrator 更省；单轮短问答直连单模型即可。';
+      if (reasonEl) reasonEl.textContent = '当前几乎无历史缓存包袱，多步/大段代码生成选 Orchestrator 更省；单轮短问答直连 Hydrogen 即可。';
     } else {
       const saveCny = Math.max(0.01, (runnerUp.usd - winner.usd) * fx);
       badgeEl.setAttribute('data-winner', winner.id === 'orch' ? 'orch' : 'neon');
-      badgeEl.textContent = `推荐 ${winner.label} · 省 ¥${saveCny.toFixed(2)}/轮`;
+      badgeEl.textContent = winner.isCurrent
+        ? `当前最优：${winner.label} · 省 ¥${saveCny.toFixed(2)}/轮`
+        : `推荐 ${winner.label} · 省 ¥${saveCny.toFixed(2)}/轮`;
       if (reasonEl) {
         if (winner.id === 'orch') {
-          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)}、缓存包袱较轻，Orchestrator 调度 Hydrogen 的低输出价更划算。`;
+          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)}，Orchestrator 稳态调度 Hydrogen（${fmtCny(winner.usd)}/轮）综合成本最低。`;
         } else {
-          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)} 且缓存命中 ${Math.round(hitRate * 100)}%，${winner.label} 保缓存${winner.promo ? '叠加限时优惠' : ''}比切 Orchestrator 丢缓存更省。`;
+          const coldNote = coldSwitchPenaltyUsd * fx >= 0.01 ? `（切 Orchestrator 首跳丢缓存额外多花 ${fmtCny(coldSwitchPenaltyUsd)}）` : '';
+          reasonEl.textContent = `当前上下文 ${formatReqCompactTokens(ctxTokens)} 且缓存命中 ${Math.round(hitRate * 100)}%，${winner.label} 保缓存${winner.promo ? '叠加限时优惠' : ''}最优${coldNote}。`;
         }
       }
     }
@@ -18809,6 +18934,11 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
         grandVal.textContent = currentPanelLanguage === 'zh-CN'
           ? t('cost.approx', { val: apiCost.toFixed(2) })
           : formatUsdMetricDisplay(apiCost, { detail: currentPanelLanguage === 'zh-TW' });
+        if (currentPanelLanguage === 'zh-CN' && apiCost > 0) {
+          grandVal.setAttribute('data-cny-display', formatCnyFromUsd(apiCost));
+        } else {
+          grandVal.removeAttribute('data-cny-display');
+        }
         grandVal.title = `${t('cost.hybridSub', { known: Number(h.knownCostUSD || 0).toFixed(2), res: Number(h.unpricedResidualCostUSD || 0).toFixed(2) })} | ${formatUsdMetricTooltip(apiCost)}`;
       }
       if (grandSub) {
@@ -18824,11 +18954,23 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       cInUSD = Number(rb.inputCostUSD || (Number(rb.input || 0) * rateIn / 1e6));
       cCaUSD = Number(rb.cacheCostUSD || (Number(rb.cache || 0) * rateCa / 1e6));
       cOutUSD = Number(rb.outputCostUSD || (Number(rb.output || 0) * rateOut / 1e6));
-      if (inVal) inVal.textContent = `$${cInUSD.toFixed(2)}`;
+      if (inVal) {
+        inVal.textContent = `$${cInUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') inVal.setAttribute('data-cny-display', formatCnyFromUsd(cInUSD, { prefix: '' }));
+        else inVal.removeAttribute('data-cny-display');
+      }
       if (inTok) inTok.textContent = t('cost.tokResidual', { tok: fmtYi(rb.input || 0) });
-      if (caVal) caVal.textContent = `$${cCaUSD.toFixed(2)}`;
+      if (caVal) {
+        caVal.textContent = `$${cCaUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') caVal.setAttribute('data-cny-display', formatCnyFromUsd(cCaUSD, { prefix: '' }));
+        else caVal.removeAttribute('data-cny-display');
+      }
       if (caTok) caTok.textContent = t('cost.tokResidual', { tok: fmtYi(rb.cache || 0) });
-      if (outVal) outVal.textContent = `$${cOutUSD.toFixed(2)}`;
+      if (outVal) {
+        outVal.textContent = `$${cOutUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') outVal.setAttribute('data-cny-display', formatCnyFromUsd(cOutUSD, { prefix: '' }));
+        else outVal.removeAttribute('data-cny-display');
+      }
       if (outTok) outTok.textContent = t('cost.tokResidual', { tok: fmtYi(rb.output || 0) });
     } else {
       // 仅已识别真实模型
@@ -18840,16 +18982,25 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       if (grandVal) {
         if (totalCount === 0) {
           grandVal.textContent = t('cost.noRecords');
+          grandVal.removeAttribute('data-cny-display');
         } else if (pricedCount === 0) {
           grandVal.textContent = t('cost.unpriced');
+          grandVal.removeAttribute('data-cny-display');
           grandVal.title = t('cost.identSubNone');
         } else if (apiCost < 0.01 && apiCost > 0) {
           grandVal.textContent = '<$0.01';
+          if (currentPanelLanguage === 'zh-CN') grandVal.setAttribute('data-cny-display', formatCnyFromUsd(apiCost));
+          else grandVal.removeAttribute('data-cny-display');
           grandVal.title = `$${apiCost.toFixed(6)}`;
         } else {
           grandVal.textContent = currentPanelLanguage === 'zh-TW'
             ? formatUsdMetricDisplay(apiCost, { withPrefix: false, detail: true })
             : `$${apiCost.toFixed(2)}`;
+          if (currentPanelLanguage === 'zh-CN' && apiCost > 0) {
+            grandVal.setAttribute('data-cny-display', formatCnyFromUsd(apiCost));
+          } else {
+            grandVal.removeAttribute('data-cny-display');
+          }
           grandVal.title = formatUsdMetricTooltip(apiCost);
         }
       }
@@ -18870,11 +19021,23 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       cInUSD = (curIdentified.byCategory?.inputTokens || 0) * rateIn / 1e6;
       cCaUSD = (curIdentified.byCategory?.cacheTokens || 0) * rateCa / 1e6;
       cOutUSD = (curIdentified.byCategory?.outputTokens || 0) * rateOut / 1e6;
-      if (inVal) inVal.textContent = `$${cInUSD.toFixed(2)}`;
+      if (inVal) {
+        inVal.textContent = `$${cInUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') inVal.setAttribute('data-cny-display', formatCnyFromUsd(cInUSD, { prefix: '' }));
+        else inVal.removeAttribute('data-cny-display');
+      }
       if (inTok) inTok.textContent = `${fmtYi(curIdentified.byCategory?.inputTokens || 0)} tok`;
-      if (caVal) caVal.textContent = `$${cCaUSD.toFixed(2)}`;
+      if (caVal) {
+        caVal.textContent = `$${cCaUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') caVal.setAttribute('data-cny-display', formatCnyFromUsd(cCaUSD, { prefix: '' }));
+        else caVal.removeAttribute('data-cny-display');
+      }
       if (caTok) caTok.textContent = `${fmtYi(curIdentified.byCategory?.cacheTokens || 0)} tok`;
-      if (outVal) outVal.textContent = `$${cOutUSD.toFixed(2)}`;
+      if (outVal) {
+        outVal.textContent = `$${cOutUSD.toFixed(2)}`;
+        if (currentPanelLanguage === 'zh-CN') outVal.setAttribute('data-cny-display', formatCnyFromUsd(cOutUSD, { prefix: '' }));
+        else outVal.removeAttribute('data-cny-display');
+      }
       if (outTok) outTok.textContent = `${fmtYi(curIdentified.byCategory?.outputTokens || 0)} tok`;
     }
 
@@ -19968,25 +20131,38 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
       }
     }
 
-    // 聚合全周期各区间预估费用
+    // 聚合全周期各区间预估费用（与 API 参考金额混合模式统一口径：按真实模型计价 + 未标明残余用参考模型）
     const allDateKeys = Object.keys(ANTIGRAVITY_TOKEN_DATA.dailyMap || {});
     const nowYmd = todayStr;
     const thisMonthPrefix = nowYmd.slice(0, 7);
     const thisYearPrefix = nowYmd.slice(0, 4);
 
-    const todayCostInfo = getDailyModelCost(ANTIGRAVITY_TOKEN_DATA.dailyMap[nowYmd], nowYmd, activeCostModel, { mode: activeCostMode });
-    const todayCostCny = convertToCNY(todayCostInfo.costUSD, 'USD');
+    const todayCostInfo = calculateDailyHybridCost(ANTIGRAVITY_TOKEN_DATA.dailyMap[nowYmd], nowYmd, activeCostModel, { mode: activeCostMode });
 
-    const totalCostAgg = calculateIntervalCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, allDateKeys, activeCostModel, { mode: activeCostMode, todayStr: nowYmd });
-    const totalCostCny = convertToCNY(totalCostAgg.totalCostUSD, 'USD');
+    const totalCostAgg = calculateIntervalHybridCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, allDateKeys, activeCostModel, { mode: activeCostMode, todayStr: nowYmd });
+    const refHybridAllUsd = Number(ANTIGRAVITY_TOKEN_DATA.referenceCost?.hybrid?.hybrid?.combinedTotalUSD || 0);
+    if (refHybridAllUsd > 0 && activeCostMode === 'hybrid') {
+      totalCostAgg.totalCostUSD = refHybridAllUsd;
+      totalCostAgg.dailyAverageUSD = Number((refHybridAllUsd / Math.max(1, totalCostAgg.pastDays)).toFixed(4));
+      totalCostAgg.activeDailyAverageUSD = totalCostAgg.activeDays > 0 ? Number((refHybridAllUsd / totalCostAgg.activeDays).toFixed(4)) : 0;
+    }
 
     const monthKeys = allDateKeys.filter(k => k.startsWith(thisMonthPrefix) && k <= nowYmd);
-    const monthCostAgg = calculateIntervalCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, monthKeys, activeCostModel, { mode: activeCostMode, todayStr: nowYmd });
-    const monthCostCny = convertToCNY(monthCostAgg.totalCostUSD, 'USD');
+    const monthCostAgg = calculateIntervalHybridCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, monthKeys, activeCostModel, { mode: activeCostMode, todayStr: nowYmd });
+    const refHybridMonthUsd = Number(ANTIGRAVITY_TOKEN_DATA.referenceCost?.currentMonthHybrid?.hybrid?.combinedTotalUSD || 0);
+    if (refHybridMonthUsd > 0 && activeCostMode === 'hybrid') {
+      monthCostAgg.totalCostUSD = refHybridMonthUsd;
+      monthCostAgg.dailyAverageUSD = Number((refHybridMonthUsd / Math.max(1, monthCostAgg.pastDays)).toFixed(4));
+      monthCostAgg.activeDailyAverageUSD = monthCostAgg.activeDays > 0 ? Number((refHybridMonthUsd / monthCostAgg.activeDays).toFixed(4)) : 0;
+    }
 
     const yearKeys = allDateKeys.filter(k => k.startsWith(thisYearPrefix) && k <= nowYmd);
-    const yearCostAgg = calculateIntervalCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, yearKeys, activeCostModel, { mode: activeCostMode, todayStr: nowYmd });
-    const yearCostCny = convertToCNY(yearCostAgg.totalCostUSD, 'USD');
+    const yearCostAgg = calculateIntervalHybridCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, yearKeys, activeCostModel, { mode: activeCostMode, todayStr: nowYmd });
+    if (refHybridAllUsd > 0 && activeCostMode === 'hybrid' && allDateKeys.every(k => k.startsWith(thisYearPrefix))) {
+      yearCostAgg.totalCostUSD = refHybridAllUsd;
+      yearCostAgg.dailyAverageUSD = Number((refHybridAllUsd / Math.max(1, yearCostAgg.pastDays)).toFixed(4));
+      yearCostAgg.activeDailyAverageUSD = yearCostAgg.activeDays > 0 ? Number((refHybridAllUsd / yearCostAgg.activeDays).toFixed(4)) : 0;
+    }
 
     const tTotalCost = el('t-total-cost');
     const tTodayCost = el('t-today-cost');
@@ -20012,19 +20188,15 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
         ? noAcctCostStr
         : formatUsdMetricDisplay(todayCostInfo.costUSD);
       if (!isScopedEmptyAccount && currentPanelLanguage === 'zh-CN') {
-        tTodayCost.setAttribute('data-cny-display', formatCnyFromUsd(todayCostInfo.costUSD));
+        const fx = getEffectiveUsdToCnyRate();
+        tTodayCost.setAttribute('data-cny-display', `${formatCnyFromUsd(todayCostInfo.costUSD)} · 昨日汇率 ${fx.toFixed(2)}`);
       } else {
         tTodayCost.removeAttribute('data-cny-display');
       }
       tTodayCost.title = isScopedEmptyAccount ? '' : formatUsdMetricTooltip(todayCostInfo.costUSD);
     }
     if (tTodaySub) {
-      if (!isScopedEmptyAccount && currentPanelLanguage === 'zh-CN') {
-        const fx = getEffectiveUsdToCnyRate();
-        tTodaySub.setAttribute('data-cny-display', `${formatCnyFromUsd(todayCostInfo?.costUSD || 0)} · 昨日汇率 ${fx.toFixed(2)}`);
-      } else {
-        tTodaySub.removeAttribute('data-cny-display');
-      }
+      tTodaySub.removeAttribute('data-cny-display');
     }
     if (tMonthCost) {
       tMonthCost.textContent = isScopedEmptyAccount

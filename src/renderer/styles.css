@@ -16858,8 +16858,25 @@
 
     .ctx-ra-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(156px, 1fr));
       gap: 8px;
+    }
+
+    .ctx-ra-cur-tag {
+      display: inline-block;
+      margin-left: 4px;
+      padding: 0 5px;
+      border-radius: 999px;
+      font-size: 10px;
+      line-height: 15px;
+      font-weight: 600;
+      background: rgba(0, 113, 227, 0.12);
+      color: var(--ag-accent, #0071E3);
+    }
+
+    :host(:not([data-theme="light"])) .ctx-ra-cur-tag {
+      background: rgba(94, 158, 255, 0.2);
+      color: #82B7FF;
     }
 
     .ctx-ra-promo-tag {

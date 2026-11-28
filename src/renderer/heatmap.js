@@ -105,7 +105,7 @@
                 ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
                 : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`);
             heatPopDate.textContent = `${dateLabel}${meta.isToday ? t('heat.today') : (meta.key === meta.firstStr ? t('heat.firstUse') : '')}`;
-            const costInfo = getDailyModelCost(meta.rec, meta.key, activeCostModel, { mode: activeCostMode });
+            const costInfo = (typeof calculateDailyHybridCost === 'function' ? calculateDailyHybridCost : getDailyModelCost)(meta.rec, meta.key, activeCostModel, { mode: activeCostMode });
             const costStr = costInfo.costUSD > 0 ? ` · ${formatUsdMetricDisplay(costInfo.costUSD, { detail: true })}` : '';
             heatPopVal.textContent = meta.tokens > 0
               ? `${fmtYi(meta.tokens)} Tokens${costStr}`
@@ -278,7 +278,7 @@
       const showPop = () => {
         const weekDates = [];
         for (let r = 0; r < 7; r++) weekDates.push(formatLocalYmd(addDays(w.sDate, r)));
-        const costAgg = calculateIntervalCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, weekDates, activeCostModel, {
+        const costAgg = (typeof calculateIntervalHybridCost === 'function' ? calculateIntervalHybridCost : calculateIntervalCost)(ANTIGRAVITY_TOKEN_DATA.dailyMap, weekDates, activeCostModel, {
           mode: activeCostMode,
           todayStr: formatLocalYmd(win.today)
         });
@@ -342,7 +342,7 @@
     }
 
     const rangeDates = summary.dailyEntries.map(d => d.date);
-    const costAgg = calculateIntervalCost(map, rangeDates, activeCostModel, {
+    const costAgg = (typeof calculateIntervalHybridCost === 'function' ? calculateIntervalHybridCost : calculateIntervalCost)(map, rangeDates, activeCostModel, {
       mode: activeCostMode,
       todayStr: todayKey
     });
@@ -538,7 +538,7 @@
 
     const showSegPop = (seg, anchorNode) => {
       const segDates = seg.days.map(d => d.date);
-      const segCost = calculateIntervalCost(map, segDates, activeCostModel, { mode: activeCostMode, todayStr: todayKey });
+      const segCost = (typeof calculateIntervalHybridCost === 'function' ? calculateIntervalHybridCost : calculateIntervalCost)(map, segDates, activeCostModel, { mode: activeCostMode, todayStr: todayKey });
       const costSuffix = segCost.totalCostUSD > 0 ? ` · ${formatUsdMetricDisplay(segCost.totalCostUSD, { detail: true })}` : '';
       const dateTitle = seg.startDate === seg.endDate
         ? seg.startDate
@@ -855,7 +855,7 @@
 
     const win = computeTimelineWindow();
     const todayStr = formatLocalYmd(win.today);
-    const costAgg = calculateIntervalCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, dateKeys, activeCostModel, {
+    const costAgg = (typeof calculateIntervalHybridCost === 'function' ? calculateIntervalHybridCost : calculateIntervalCost)(ANTIGRAVITY_TOKEN_DATA.dailyMap, dateKeys, activeCostModel, {
       mode: activeCostMode,
       todayStr
     });
@@ -977,7 +977,7 @@
       }
 
       const showPop = () => {
-        const costInfo = getDailyModelCost(rec, k, activeCostModel, { mode: activeCostMode });
+        const costInfo = (typeof calculateDailyHybridCost === 'function' ? calculateDailyHybridCost : getDailyModelCost)(rec, k, activeCostModel, { mode: activeCostMode });
         const costStr = costInfo.costUSD > 0 ? ` · ${formatUsdMetricDisplay(costInfo.costUSD, { detail: true })}` : '';
         const mDateLabel = currentPanelLanguage === 'en'
           ? `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -1250,7 +1250,7 @@
       g.appendChild(text);
 
       const showPop = () => {
-        const costAgg = calculateIntervalCost(ANTIGRAVITY_TOKEN_DATA.dailyMap, item.dates, activeCostModel, {
+        const costAgg = (typeof calculateIntervalHybridCost === 'function' ? calculateIntervalHybridCost : calculateIntervalCost)(ANTIGRAVITY_TOKEN_DATA.dailyMap, item.dates, activeCostModel, {
           mode: activeCostMode,
           todayStr: formatLocalYmd(win.today)
         });
