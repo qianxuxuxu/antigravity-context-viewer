@@ -29658,6 +29658,9 @@ try {
     const activeRawModel = String(lastCall?.model || state.lastData?.model || '').trim();
     const activeNorm = activeRawModel.toLowerCase();
     const isUsingOrch = /orchestrator|worker/.test(activeNorm);
+    const isUsingHydro = !isUsingOrch && /hydrogen/.test(activeNorm);
+    const isUsingNeon = !isUsingOrch && /neon/.test(activeNorm);
+    const isUsingCarbon = !isUsingOrch && /carbon/.test(activeNorm);
     // 按当前对话实测逐轮数据校准（结合系统前缀保底法则 ~27.5K）
     const authTurns = typeof buildAuthoritativeMainTurns === 'function' ? (buildAuthoritativeMainTurns()?.turns || []) : [];
     const mixedOrchTurns = authTurns.filter(tr => {
@@ -70711,7 +70714,7 @@ if (typeof dismissNextPromptSuggestion === 'function') dismissNextPromptSuggesti
   }
 
   globalThis.__AGContextMeter = {
-    buildId: 'c76e62df4443aae0',
+    buildId: '7d1cda910c56dbf8',
     version: METER_RENDERER_VERSION,
     ensureAlive: () => {
       if (state.disposed) return false;
