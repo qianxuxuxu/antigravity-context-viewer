@@ -18776,10 +18776,10 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
 
   // 热力图视图切换（每天 / 每周 / 累计总量）
 
-  // 费用估算范围（默认本期：自然月）与估值模式（默认参考模型折算，首屏展示真实用量价值）
+  // 费用估算范围（默认本期：自然月）与估值模式（默认混合模式，与 Token 统计区统一按真实模型计价）
   let activeCostScope = defaultViewPrefs.costScope; // 'period' | 'all'
-  let costModelMode = 'ref'; // 'ref' | 'hybrid' | 'identified'
-  let activeRefMode = 'all'; // 兼容旧接口 'all' | 'hybrid'
+  let costModelMode = 'hybrid'; // 'ref' | 'hybrid' | 'identified'
+  let activeRefMode = 'hybrid'; // 兼容旧接口 'all' | 'hybrid'
 
   function switchCostScope(scope) {
     activeCostScope = scope;
@@ -18925,8 +18925,7 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
             ? t('cost.approx', { val: apiCost.toFixed(2) })
             : formatUsdMetricDisplay(apiCost, { detail: currentPanelLanguage === 'zh-TW' });
           if (currentPanelLanguage === 'zh-CN') {
-            const actualTotalUsd = Number(curHybrid?.hybrid?.combinedTotalUSD || apiCost);
-            grandVal.setAttribute('data-cny-display', formatCnyFromUsd(actualTotalUsd));
+            grandVal.setAttribute('data-cny-display', formatCnyFromUsd(apiCost));
           } else {
             grandVal.removeAttribute('data-cny-display');
           }

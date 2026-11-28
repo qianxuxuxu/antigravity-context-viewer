@@ -18865,9 +18865,9 @@
           style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--ag-border-subcard)">
           <span style="font-size:10.5px;color:var(--ag-text-muted)" data-i18n="cost.modeLabel">估值模式:</span>
           <div class="source-switch-bar">
-            <button id="cost-btn-mode-ref" class="switch-pill-btn active" type="button"
+            <button id="cost-btn-mode-ref" class="switch-pill-btn" type="button"
               style="padding:1px 6px;font-size:10px" data-i18n="cost.modeRef">参考模型估算</button>
-            <button id="cost-btn-mode-hybrid" class="switch-pill-btn" type="button"
+            <button id="cost-btn-mode-hybrid" class="switch-pill-btn active" type="button"
               style="padding:1px 6px;font-size:10px" data-i18n="cost.modeHybrid">混合模式</button>
             <button id="cost-btn-mode-identified" class="switch-pill-btn" type="button"
               style="padding:1px 6px;font-size:10px" data-i18n="cost.modeIdentified">仅已识别模型</button>
@@ -46523,10 +46523,10 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
 
   // 热力图视图切换（每天 / 每周 / 累计总量）
 
-  // 费用估算范围（默认本期：自然月）与估值模式（默认参考模型折算，首屏展示真实用量价值）
+  // 费用估算范围（默认本期：自然月）与估值模式（默认混合模式，与 Token 统计区统一按真实模型计价）
   let activeCostScope = defaultViewPrefs.costScope; // 'period' | 'all'
-  let costModelMode = 'ref'; // 'ref' | 'hybrid' | 'identified'
-  let activeRefMode = 'all'; // 兼容旧接口 'all' | 'hybrid'
+  let costModelMode = 'hybrid'; // 'ref' | 'hybrid' | 'identified'
+  let activeRefMode = 'hybrid'; // 兼容旧接口 'all' | 'hybrid'
 
   function switchCostScope(scope) {
     activeCostScope = scope;
@@ -46672,8 +46672,7 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
             ? t('cost.approx', { val: apiCost.toFixed(2) })
             : formatUsdMetricDisplay(apiCost, { detail: currentPanelLanguage === 'zh-TW' });
           if (currentPanelLanguage === 'zh-CN') {
-            const actualTotalUsd = Number(curHybrid?.hybrid?.combinedTotalUSD || apiCost);
-            grandVal.setAttribute('data-cny-display', formatCnyFromUsd(actualTotalUsd));
+            grandVal.setAttribute('data-cny-display', formatCnyFromUsd(apiCost));
           } else {
             grandVal.removeAttribute('data-cny-display');
           }
@@ -70712,7 +70711,7 @@ if (typeof dismissNextPromptSuggestion === 'function') dismissNextPromptSuggesti
   }
 
   globalThis.__AGContextMeter = {
-    buildId: '2efaa322ccbe14d9',
+    buildId: 'c76e62df4443aae0',
     version: METER_RENDERER_VERSION,
     ensureAlive: () => {
       if (state.disposed) return false;
